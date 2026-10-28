@@ -496,6 +496,7 @@ export function buildWorld(data, mallBuf, scene) {
     meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall, { uv: 'side' }), meshOf(toThree(get('ceil')), M.mallCeil),
     meshOf(toThree(get('inst')), M.mallInst), meshOf(toThree(get('door')), M.mallDoor),
   ];
+  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor'].forEach((n, i) => { mallMeshes[i].name = n; });
   scene.add(...mallMeshes);
 
   // 天井の蛍光灯: 駅の向き（階段の向きの平均）にそろえ、3.6 m × 2.4 m ごとに細長い光る板を並べる
@@ -555,6 +556,7 @@ export function buildWorld(data, mallBuf, scene) {
   const UV = new Set(['concourse', 'platform', 'toilet', 'apron']);
   for (const [k, pos] of Object.entries(buckets)) {
     const mesh = meshOf(pos, M[k], { uv: uvs[k] || UV.has(k), colors: k === 'shop' ? colors : null });
+    mesh.name = k; // 確かめ用（どの部品か）
     if (k === 'glass') mesh.renderOrder = 2;
     scene.add(mesh);
   }
