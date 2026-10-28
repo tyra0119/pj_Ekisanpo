@@ -2,17 +2,17 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下を押して動かすと歩く、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrkblib';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrkblib';
-import { addTrains } from './trains.js?v=mvrkblib';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrknmto';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrknmto';
+import { addTrains } from './trains.js?v=mvrknmto';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
 const [data, mallBuf] = await Promise.all([
-  fetch('data/ikebukuro.json?v=mvrkblib').then((r) => r.json()),
-  fetch('data/mall.bin?v=mvrkblib').then((r) => r.arrayBuffer()),
+  fetch('data/ikebukuro.json?v=mvrknmto').then((r) => r.json()),
+  fetch('data/mall.bin?v=mvrknmto').then((r) => r.arrayBuffer()),
 ]);
 $('credit').textContent = '出典: ' + data.credits.join(' ／ ');
 $('helpCredit').textContent = '出典: ' + data.credits.join(' ／ ');
@@ -478,6 +478,93 @@ function gridPath(ax, ay, bx, by) {
 }
 setTimeout(() => getGrid(), 1500); // 最初の案内で待たないように、読み込みのあとで作っておく
 
+// ---------- 改札の内と外 ----------
+// 経路網の点のうち、ホームの乗車位置から改札（経路の種類 6・7）を通らずにたどれる点が改札内
+const paid = new Uint8Array(GN.length);
+{
+  const nb = GN.map(() => []);
+  for (const [i, j, , mode] of data.graph.e) if (mode !== 6 && mode !== 7) { nb[i].push(j); nb[j].push(i); }
+  const q = data.dest.filter((d) => d.t === 'plat').flatMap((d) => d.nodes);
+  q.forEach((i) => { paid[i] = 1; });
+  while (q.length) { const u = q.pop(); for (const v of nb[u]) if (!paid[v]) { paid[v] = 1; q.push(v); } }
+}
+// 改札機の列の線: となり合う改札機の中心をつなぐ。列の両端の改札機からは、列の向きに 0.8 m のばす（壁とのすき間をふさぐ）
+const fareLines = [];
+{
+  const G = data.gates, deg = new Map();
+  for (let a = 0; a < G.length; a++) for (let b = a + 1; b < G.length; b++) {
+    if (G[a][2] !== G[b][2]) continue;
+    const ux = Math.cos(G[a][5]), uy = Math.sin(G[a][5]), dx = G[b][0] - G[a][0], dy = G[b][1] - G[a][1];
+    const along = dx * ux + dy * uy, perp = Math.abs(-dx * uy + dy * ux);
+    if (Math.abs(along) > 0.6 || perp < 0.3 || perp > 1.3) continue;
+    fareLines.push([G[a][0], G[a][1], G[b][0], G[b][1], G[a][2]]);
+    for (const [k, o] of [[a, b], [b, a]]) { if (!deg.has(k)) deg.set(k, []); deg.get(k).push(o); }
+  }
+  for (const [k, os] of deg) {
+    if (os.length !== 1) continue;
+    const [x, y, l] = G[k], o = G[os[0]], L = Math.hypot(x - o[0], y - o[1]);
+    fareLines.push([x, y, x + ((x - o[0]) / L) * 0.8, y + ((y - o[1]) / L) * 0.8, l]);
+  }
+}
+const crosses = (p, q, a, b) => {
+  const o = (u, v, w) => (v[0] - u[0]) * (w[1] - u[1]) - (v[1] - u[1]) * (w[0] - u[0]);
+  return o(a, b, p) * o(a, b, q) < 0 && o(p, q, a) * o(p, q, b) < 0;
+};
+// 改札機の列から 1 m 以内の点は判定に使わない（南改札の内側の点が列のちょうど上にあり、外からも列を横切らずに届いた）
+const onFare = GN.map((g) => fareLines.some((f) => {
+  if (f[4] !== g[2]) return false;
+  const dx = f[2] - f[0], dy = f[3] - f[1], L = dx * dx + dy * dy, t = L ? Math.max(0, Math.min(1, ((g[0] - f[0]) * dx + (g[1] - f[1]) * dy) / L)) : 0;
+  return Math.hypot(g[0] - f[0] - dx * t, g[1] - f[1] - dy * t) < 1;
+}));
+// 改札機の列ごとに、どちら側が改札内か。列は、となり合う改札機をつないでできるまとまり。向きは改札機に直角。
+// 改札内の側は、列の近く（6 m 以内）を通る改札の経路（種類 6）の改札内の点が、列のどちら側にあるかの多数決（点が列から 0.3 m 以内なら反対の点で）
+const fareRows = [];
+{
+  const G = data.gates, parent = G.map((_, i) => i), find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let a = 0; a < G.length; a++) for (let b = a + 1; b < G.length; b++) {
+    if (G[a][2] !== G[b][2]) continue;
+    const ux = Math.cos(G[a][5]), uy = Math.sin(G[a][5]), dx = G[b][0] - G[a][0], dy = G[b][1] - G[a][1];
+    if (Math.abs(dx * ux + dy * uy) <= 0.6 && Math.abs(-dx * uy + dy * ux) <= 1.3) parent[find(a)] = find(b);
+  }
+  const groups = {};
+  G.forEach((g, i) => (groups[find(i)] = groups[find(i)] || []).push(g));
+  for (const ms of Object.values(groups)) {
+    if (ms.length < 2) continue;
+    const l = ms[0][2], ang = ms[0][5], rx = -Math.sin(ang), ry = Math.cos(ang); // 列の向き
+    const cx = ms.reduce((s, g) => s + g[0], 0) / ms.length, cy = ms.reduce((s, g) => s + g[1], 0) / ms.length;
+    const pr = ms.map((g) => (g[0] - cx) * rx + (g[1] - cy) * ry), t0 = Math.min(...pr), t1 = Math.max(...pr);
+    const side = (x, y) => (x - cx) * -ry + (y - cy) * rx; // 列からの符号つきの距離
+    let vote = 0;
+    for (const [i, j, , mode] of data.graph.e) {
+      if (mode !== 6 || GN[i][2] !== l) continue;
+      const mx = (GN[i][0] + GN[j][0]) / 2, my = (GN[i][1] + GN[j][1]) / 2;
+      if (Math.hypot(mx - cx, my - cy) > 6 + (t1 - t0) / 2) continue;
+      const [pi, ui] = paid[i] ? [i, j] : [j, i], sp = side(GN[pi][0], GN[pi][1]), su = side(GN[ui][0], GN[ui][1]);
+      vote += Math.abs(sp) > 0.3 ? Math.sign(sp) : -Math.sign(su);
+    }
+    if (vote) fareRows.push({ l, cx, cy, rx, ry, t0, t1, side, inSign: Math.sign(vote) });
+  }
+}
+// いまいる所: 改札機の列の前後 4 m 以内なら、列のどちら側か。そうでなければ、改札機の列も壁も横切らずにまっすぐ行ける、
+// いちばん近い経路網の点（30 m まで）の内・外。無ければ改札外（地下街など）
+function fareSide(x, y, l) {
+  for (const r of fareRows) {
+    if (r.l !== l) continue;
+    const t = (x - r.cx) * r.rx + (y - r.cy) * r.ry, s = r.side(x, y);
+    if (t > r.t0 - 1.5 && t < r.t1 + 1.5 && Math.abs(s) < 4) return Math.sign(s) === r.inSign ? 'in' : 'out';
+  }
+  const cand = [];
+  GN.forEach((g, i) => { if (g[2] === l && !onFare[i]) { const d = Math.hypot(g[0] - x, g[1] - y); if (d < 30) cand.push([i, d]); } });
+  cand.sort((a, b) => a[1] - b[1]);
+  for (const [i] of cand.slice(0, 12)) {
+    const p = [x, y], q = [GN[i][0], GN[i][1]];
+    if (fareLines.some((f) => f[4] === l && crosses(p, q, [f[0], f[1]], [f[2], f[3]]))) continue;
+    if (data.walls.some((w) => w[4] === l && w[5] !== 'r' && crosses(p, q, [w[0], w[1]], [w[2], w[3]]))) continue;
+    return paid[i] ? 'in' : 'out';
+  }
+  return 'out';
+}
+
 // 床の矢印
 const chevGeo = (() => {
   const s = new THREE.Shape();
@@ -614,13 +701,20 @@ function openYaw(x, y, z) {
   }
   return best[0];
 }
+// 「出発・行き先」の画面: 上の 2 行（出発・行き先）のうち選んでいる行の一覧を出す。選んだものはこの画面の中だけで覚え、
+// 「案内を始める」（行き先が無ければ「ここへ移動」）で出発地へ移動し、行き先の案内を始める
+const pend = { from: null, to: null }; // from: null はいまいる所
+function renderRows() {
+  for (const b of document.querySelectorAll('#routeRows .rrow')) b.classList.toggle('on', b.dataset.m === destMode);
+  $('fromVal').textContent = pend.from ? pend.from.name : 'いまいる所';
+  $('toVal').textContent = pend.to ? pend.to.name + (pend.to.dir ? ` ${pend.to.dir}` : '') : '選んでください';
+  $('toVal').classList.toggle('empty', !pend.to);
+  $('goBtn').disabled = !pend.from && !pend.to;
+  $('goBtn').textContent = pend.from && !pend.to ? 'ここへ移動' : '案内を始める';
+}
 function openDest(mode = destMode) {
   destMode = mode;
-  for (const b of document.querySelectorAll('#destSeg button')) b.classList.toggle('on', b.dataset.m === mode);
-  $('destTitle').textContent = mode === 'from' ? 'どこから歩く？' : 'どこへ行く？';
-  $('destNote').textContent = mode === 'from'
-    ? '選んだ所へ移動します。続けて行き先を選べます（右下の地図をタップしても移動できます）'
-    : startName ? `出発地: ${startName}` : 'いまいる所から案内します';
+  renderRows();
   const list = $('destList');
   list.innerHTML = '';
   const pl = levelOf(me.z);
@@ -632,15 +726,24 @@ function openDest(mode = destMode) {
     const h = document.createElement('div'); h.className = 'grp'; h.textContent = title; list.append(h);
     for (const [d, html, tag] of items) {
       const b = document.createElement('button');
-      b.className = 'item'; b.type = 'button';
+      b.className = 'item' + (pend[destMode] === d ? ' sel' : ''); b.type = 'button';
       b.innerHTML = html + (tag ? `<span class="tag">${tag}</span>` : '');
       b.onclick = () => {
-        if (destMode === 'from') { startAt(d); openDest('to'); return; }
-        $('destPanel').hidden = true; setDest(d);
+        pend[destMode] = d;
+        // 出発を選んだら行き先の一覧へ。行き先を選んだらそのまま（出発を変えるときは上の行を押す）
+        openDest('to');
+        $('destList').scrollTop = 0;
       };
       list.append(b);
     }
   };
+  if (mode === 'from' && !q) { // いまいる所（移動しない）
+    const b = document.createElement('button');
+    b.className = 'item' + (!pend.from ? ' sel' : ''); b.type = 'button';
+    b.innerHTML = '<span class="dot" style="background:#1a73e8">今</span>いまいる所<span class="tag">移動しない</span>';
+    b.onclick = () => { pend.from = null; openDest('to'); };
+    list.append(b);
+  }
   const dist = (d) => Math.hypot(d.x - me.x, d.y - me.y) + Math.abs(d.level - pl) * 30;
   const gates = data.dest.filter((d) => d.t === 'gate');
   add('改札', gates.map((d) => [d, `<span class="dot" style="background:#f5c400;color:#111">改</span>${d.name}`, LV[d.level].name]));
@@ -658,10 +761,22 @@ function openDest(mode = destMode) {
   if (!list.children.length) list.innerHTML = '<p class="note">見つかりませんでした</p>';
   $('destPanel').hidden = false;
 }
-$('destBtn').onclick = () => { $('destFilter').value = ''; openDest('to'); };
-$('fromBtn').onclick = () => { $('destFilter').value = ''; openDest('from'); };
+$('destBtn').onclick = () => {
+  $('destFilter').value = '';
+  pend.from = null; pend.to = nav.dest; // 出発はいまいる所、行き先はいまの案内
+  openDest('to');
+};
 $('destFilter').addEventListener('input', () => openDest(destMode));
-for (const b of document.querySelectorAll('#destSeg button')) b.onclick = () => openDest(b.dataset.m);
+for (const b of document.querySelectorAll('#routeRows .rrow')) b.onclick = () => { $('destFilter').value = ''; openDest(b.dataset.m); };
+$('goBtn').onclick = () => {
+  $('destPanel').hidden = true;
+  const { from, to } = pend;
+  if (from) {
+    startAt(from);
+    if (jump && to) jump.after = () => setDest(to); // 出発地に着いてから道筋を探す
+    else if (to) setDest(to);
+  } else if (to) setDest(to);
+};
 // 案内を共有: 出発地（選んでいれば）と行き先を URL に
 $('gShare').onclick = async () => {
   if (!nav.dest) return;
@@ -950,12 +1065,13 @@ function updateJump(dt) {
   me.x = fx + (tx - fx) * e; me.y = fy + (ty - fy) * e; me.z = fz + (tz - fz) * e;
   if (jump.yaw != null) { const d = Math.atan2(Math.sin(jump.yaw - jump.yaw0), Math.cos(jump.yaw - jump.yaw0)); me.yaw = jump.yaw0 + d * Math.min(1, u * 2); }
   if (u >= 1) {
-    const msg = jump.msg || (levelOf(me.z) !== levelOf(fz) ? `${LV[levelOf(me.z)].name} に移動しました` : '');
+    const msg = jump.msg || (levelOf(me.z) !== levelOf(fz) ? `${LV[levelOf(me.z)].name} に移動しました` : ''), after = jump.after;
     jump = null;
     mini.floor = null;
     mini.follow = true;
     document.body.classList.remove('riding');
     if (msg) toast(msg);
+    if (after) after();
   }
   return true;
 }
@@ -1115,7 +1231,7 @@ addEventListener('resize', resize);
 resize();
 
 let last = performance.now();
-let floorShown = '';
+let floorShown = '', fareShown = 'out', fareAt = 0;
 function frame(now) {
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); // 最初のコマは now が last より前のことがある
   last = now;
@@ -1163,6 +1279,11 @@ function frame(now) {
   camera.rotation.set(me.pitch, -me.yaw, 0);
   const fl = LV[levelOf(me.z)].name;
   if (fl !== floorShown) { $('floor').textContent = fl; floorShown = fl; }
+  if (now - fareAt > 300) { // 改札の内・外（0.3 秒ごと）
+    fareAt = now;
+    const side = fareSide(me.x, me.y, levelOf(me.z));
+    if (side !== fareShown) { fareShown = side; $('fare').textContent = side === 'in' ? '改札内' : '改札外'; $('fare').className = `pill fare ${side}`; }
+  }
   trains.update(dt);
   watchLevel();
   updateGuide();
@@ -1175,4 +1296,4 @@ $('loading').hidden = true;
 requestAnimationFrame(frame);
 
 // 確かめ用（コンソールから位置を見る・動かす）
-window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt, scene, camera, THREE };
+window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt, scene, camera, THREE, fareSide };

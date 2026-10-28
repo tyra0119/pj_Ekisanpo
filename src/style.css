@@ -21,6 +21,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .brand span { font-size: 13px; color: var(--sub); }
 .pill { background: #222; color: #fff; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: 15px; box-shadow: var(--shadow); min-width: 46px; text-align: center; }
 
+.pill.fare { font-size: 14px; min-width: 0; transition: background 0.3s; }
+.pill.fare.in { background: #0b8f4d; }
+.pill.fare.out { background: #6b737b; }
 .btn { border: none; border-radius: 22px; padding: 10px 18px; font-weight: 700; box-shadow: var(--shadow); background: var(--panel); }
 .btn.primary { background: var(--accent); color: #fff; }
 #leftBtns { position: fixed; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 46px); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
@@ -99,15 +102,23 @@ body.riding #view { filter: brightness(0.55); transition: filter 0.4s; }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; margin-right: 2px; background: rgba(127,127,127,0.08); }
 body.touch .pc, body:not(.touch) .touch { display: none; }
 .sheet .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-#destSeg { margin-bottom: 4px; }
+/* 出発・行き先の 2 行（押した行の一覧を下に出す） */
+#routeRows { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px; }
+.rrow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 2px solid var(--line); border-radius: 12px; background: transparent; padding: 9px 12px; }
+.rrow.on { border-color: var(--accent); background: rgba(11,143,77,0.08); }
+.rrow .lab { font-size: 12px; font-weight: 700; color: var(--sub); width: 3.2em; flex: none; }
+.rrow.on .lab { color: var(--accent); }
+.rrow .val { font-weight: 700; font-size: 15px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rrow .val.empty { color: var(--sub); font-weight: 400; }
+.rrow .chev { color: var(--sub); font-size: 20px; }
+.item.sel { background: rgba(11,143,77,0.12); border-radius: 8px; }
+#goBtn { width: 100%; margin-top: 8px; padding: 12px; font-size: 16px; }
+#goBtn:disabled { opacity: 0.4; }
 /* 出発地・行き先の画面: 見出し（✕）・切り替え・探す欄は動かさず、一覧だけを動かす */
 #destPanel .sheet { display: flex; flex-direction: column; overflow: hidden; }
 #destPanel .sheet > :not(#destList) { flex: none; }
 #destList { flex: 1 1 auto; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
 #destFilter { width: 100%; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); margin: 2px 0 4px; }
-.seg { display: inline-flex; background: rgba(127,127,127,0.15); border-radius: 10px; padding: 3px; }
-.seg button { border: none; background: transparent; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; color: var(--sub); }
-.seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 .grp { font-size: 12px; color: var(--sub); margin: 12px 0 4px; font-weight: 700; }
 .item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none; background: transparent; padding: 10px 6px; border-bottom: 1px solid var(--line); font-size: 15px; }
 .item small { color: var(--sub); font-size: 12px; }
