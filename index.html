@@ -19,6 +19,7 @@
 </header>
 
 <div id="leftBtns">
+  <button id="fromBtn" class="btn" type="button">出発地</button>
   <button id="destBtn" class="btn primary" type="button">行き先</button>
   <button id="recBtn" class="btn" type="button"><span class="recDot"></span><span id="recLabel">録画</span></button>
 </div>
@@ -90,10 +91,12 @@
 <div id="destPanel" hidden>
   <div class="sheet">
     <div class="head">
-      <div id="destSeg" class="seg"><button type="button" data-m="from">出発地</button><button type="button" data-m="to">行き先</button></div>
+      <b id="destTitle">どこへ行く？</b>
       <button id="destClose" class="x" type="button" aria-label="閉じる">✕</button>
     </div>
+    <div id="destSeg" class="seg"><button type="button" data-m="from">出発地</button><button type="button" data-m="to">行き先</button></div>
     <p id="destNote" class="note"></p>
+    <input id="destFilter" type="search" placeholder="名前で探す（例: 出口 9、トイレ、山手線、カフェ）" autocomplete="off">
     <div id="destList"></div>
   </div>
 </div>
@@ -108,7 +111,8 @@
       <li class="touch">左下の十字キーで歩く（▲▼ で前後、◀▶ で向きを変える、真ん中で走る）。左側を押したまま動かしても歩ける</li>
       <li class="touch">右側をなぞると見回す</li>
       <li>右下の地図をタップすると、その場所へ移動。左の 2F・1F・B1 で階を切り替え</li>
-      <li>「行き先」で改札・ホーム・トイレを選ぶと、床の矢印と画面上の矢印で案内</li>
+      <li>「出発地」で歩きはじめる所を選ぶと、そこへ移動</li>
+      <li>「行き先」で改札・ホーム・トイレ・エレベーターを選ぶと、床の矢印と画面上の矢印で案内</li>
       <li>壁や改札機にはぶつかります。改札機のあいだを通り抜けてください</li>
     </ul>
     <p id="helpCredit" class="note"></p>

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 export const EYE = 1.6;      // 目の高さ
 export const RADIUS = 0.25;  // 体の半径（壁との当たり）
-export const STEP = 0.45;    // 上れる段差
+export const STEP = 0.6;     // 上れる段差（JR の地下 1 階と東側の地下街の床が約 0.5 m 食い違うので、それを越えられる高さ）
 export const DROP = 0.7;     // 下りられる段差（これより深い所へは進めない）
 
 const V = (x, y, z) => [x, z, -y];
@@ -36,6 +36,62 @@ function tileTexture(base, line, size = 128, lines = 2) {
   return t;
 }
 
+// 壁の模様（横 1 m × 高さ 3 m）: 下に濃い幅木、腰（1.1 m まで）はタイル、上は明るい壁
+function wallTexture(upper, lower, joint, base = '#5d5a55') {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 384;
+  const g = c.getContext('2d');
+  const H = 384, px = (m) => H - (m / 3) * H; // 床からの高さ m → 画像の y
+  g.fillStyle = upper; g.fillRect(0, 0, 128, H);
+  g.fillStyle = 'rgba(0,0,0,0.06)'; g.fillRect(0, px(2.6), 128, 2); // 上のほうの継ぎ目
+  g.fillStyle = lower; g.fillRect(0, px(1.1), 128, px(0) - px(1.1));
+  g.strokeStyle = joint; g.lineWidth = 2;
+  for (let y = 0.1; y < 1.1; y += 0.25) { g.beginPath(); g.moveTo(0, px(y)); g.lineTo(128, px(y)); g.stroke(); }
+  for (const x of [0, 64]) { g.beginPath(); g.moveTo(x, px(1.1)); g.lineTo(x, px(0)); g.stroke(); }
+  g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, px(1.1) - 3, 128, 3); // 腰の見切り
+  g.fillStyle = base; g.fillRect(0, px(0.1), 128, px(0) - px(0.1)); // 幅木
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+// 縦横の継ぎ目だけの板（駅務の壁・地下街の壁）
+function panelTexture(color, joint, w = 1.2) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = color; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = joint; g.lineWidth = 3;
+  g.strokeRect(1.5, 1.5, 125, 125);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(1 / w, 1 / w);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+// 改札機の面: 端（進む向き）は緑の矢印、上面は黒い板に青い IC の読み取り部、横は銀に黒い帯
+function gateTextures() {
+  const mk = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const end = mk(64, 128, (g, w, h) => {
+    g.fillStyle = '#c9ced3'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#1d2328'; g.fillRect(8, 10, w - 16, 36);
+    g.fillStyle = '#3ddc68'; g.beginPath(); g.moveTo(w / 2, 14); g.lineTo(w - 14, 30); g.lineTo(w / 2 + 6, 30); g.lineTo(w / 2 + 6, 42); g.lineTo(w / 2 - 6, 42); g.lineTo(w / 2 - 6, 30); g.lineTo(14, 30); g.fill();
+  });
+  const top = mk(256, 64, (g, w, h) => {
+    g.fillStyle = '#2b3036'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#1e88e5'; g.fillRect(w * 0.12, h * 0.2, w * 0.2, h * 0.6);
+    g.fillStyle = '#90caf9'; g.fillRect(w * 0.15, h * 0.32, w * 0.14, h * 0.36);
+    g.fillStyle = '#4a5058'; g.fillRect(w * 0.7, h * 0.3, w * 0.18, h * 0.4); // 切符の入れ口
+  });
+  const side = mk(256, 128, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#eef1f4'); gr.addColorStop(1, '#b9bfc5');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#30363c'; g.fillRect(0, h * 0.18, w, h * 0.16);
+    g.fillStyle = '#2f6fb7'; g.fillRect(0, h * 0.34, w, h * 0.04);
+  });
+  return { end, top, side };
+}
+
 function materials() {
   const lam = (o) => new THREE.MeshLambertMaterial(o);
   return {
@@ -46,9 +102,9 @@ function materials() {
     ceiling: lam({ color: '#f1f0ec', emissive: '#b9b6ae', side: THREE.FrontSide }), // 照明の入った天井のつもりで少し光らせる
     ceilTop: lam({ color: '#6d6a62' }),          // 下の階の天井を上から見たところ（線路の砂利のつもり）
     roof: lam({ color: '#e6e4de', emissive: '#8f8c86', side: THREE.DoubleSide }),
-    wall: lam({ map: tileTexture('#ece7dc', '#d8d1c2', 128, 4), side: THREE.DoubleSide }),
-    staff: lam({ color: '#d4d6d8', side: THREE.DoubleSide }),
-    elevWall: lam({ color: '#b7bec5', emissive: '#30363c', side: THREE.DoubleSide }), // ステンレスのエレベーター
+    wall: lam({ map: wallTexture('#f1ede4', '#c9d3d8', '#b3bec4'), side: THREE.DoubleSide }),
+    staff: lam({ map: panelTexture('#d2d5d8', '#b2b6ba', 1.0), side: THREE.DoubleSide }),
+    elevWall: lam({ map: panelTexture('#b7bec5', '#8e969e', 0.9), emissive: '#30363c', side: THREE.DoubleSide }), // ステンレスのエレベーター
     shop: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     glass: new THREE.MeshLambertMaterial({ color: '#9fc6d6', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
     frame: lam({ color: '#7d858c' }),
@@ -58,9 +114,8 @@ function materials() {
     rail: lam({ color: '#5b5f63' }),
     side: lam({ color: '#cfc9bd', side: THREE.DoubleSide }),
     gate: lam({ color: '#e9eaec' }),
-    gateTop: lam({ color: '#2f6fb7' }),
     mallFloor: lam({ map: tileTexture('#d6d0c6', '#c0b8aa') }),
-    mallWall: lam({ color: '#e7e1d6', side: THREE.DoubleSide }),
+    mallWall: lam({ map: panelTexture('#e9e3d8', '#cdc5b6', 1.2), side: THREE.DoubleSide }),
     mallCeil: lam({ color: '#f3f2ee', emissive: '#b9b6ae', side: THREE.DoubleSide }),
     mallInst: lam({ color: '#a9a49b', side: THREE.DoubleSide }),
     mallDoor: new THREE.MeshLambertMaterial({ color: '#b5d3df', transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
@@ -69,11 +124,23 @@ function materials() {
   };
 }
 
-// 位置の配列（three.js の座標）から面を作る
+// 位置の配列（three.js の座標）から面を作る。uv: true は床（真上から 1.2 m ごと）、'side' は縦の面（横に沿って m、高さ m）、配列はそのまま
 function meshOf(pos, mat, { uv = false, colors = null } = {}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  if (uv) { // 床は真上から 1.2 m ごとの模様
+  if (Array.isArray(uv) || uv instanceof Float32Array) g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  else if (uv === 'side') { // 三角形ごとに、横の向きで模様を貼る（地下街の壁）
+    const u = new Float32Array((pos.length / 3) * 2);
+    for (let i = 0; i < pos.length; i += 9) {
+      // 法線の x・z 成分（辺 e × 辺 f）
+      const ex = pos[i + 3] - pos[i], ey = pos[i + 4] - pos[i + 1], ez = pos[i + 5] - pos[i + 2];
+      const fx = pos[i + 6] - pos[i], fy = pos[i + 7] - pos[i + 1], fz = pos[i + 8] - pos[i + 2];
+      const nX = ey * fz - ez * fy, nZ = ex * fy - ey * fx;
+      const alongZ = Math.abs(nX) > Math.abs(nZ); // 法線が x 寄りの面は z に沿って貼る
+      for (let k = 0; k < 3; k++) { const p = i + k * 3, j = (p / 3) * 2; u[j] = alongZ ? pos[p + 2] : pos[p]; u[j + 1] = pos[p + 1]; }
+    }
+    g.setAttribute('uv', new THREE.BufferAttribute(u, 2));
+  } else if (uv) {
     const u = new Float32Array((pos.length / 3) * 2);
     for (let i = 0, j = 0; i < pos.length; i += 3, j += 2) { u[j] = pos[i] / 1.2; u[j + 1] = pos[i + 2] / 1.2; }
     g.setAttribute('uv', new THREE.BufferAttribute(u, 2));
@@ -295,7 +362,14 @@ export function buildWorld(data, mallBuf, scene) {
   }
 
   // 壁: w 壁、s 店先、f 駅務、p ホームドア、r 手すり
-  const quad = (key, ax, ay, bx, by, z0, z1) => push(key, V(ax, ay, z0), V(bx, by, z0), V(bx, by, z1), V(ax, ay, z0), V(bx, by, z1), V(ax, ay, z1));
+  // 壁の模様の位置: 横は壁に沿って m、縦は床から（wall は 3 m で 1、板の模様は m）
+  const uvs = {};
+  const quad = (key, ax, ay, bx, by, z0, z1) => {
+    push(key, V(ax, ay, z0), V(bx, by, z0), V(bx, by, z1), V(ax, ay, z0), V(bx, by, z1), V(ax, ay, z1));
+    if (key !== 'wall' && key !== 'staff' && key !== 'elevWall') return;
+    const L = Math.hypot(bx - ax, by - ay), v = key === 'wall' ? (z1 - z0) / 3 : z1 - z0;
+    (uvs[key] = uvs[key] || []).push(0, 0, L, 0, L, v, 0, 0, L, v, 0, v);
+  };
   const SHOP = ['#ffe9c2', '#fff4dc', '#ffdcb8', '#e8f3ff', '#fff0f0', '#f2ffe8'];
   const BAND = ['#c0392b', '#1f6fb2', '#2e8b57', '#d68910', '#6c3483', '#17202a', '#b03a2e'];
   let shopN = 0;
@@ -393,22 +467,23 @@ export function buildWorld(data, mallBuf, scene) {
   }
 
   // 改札機
+  // 面ごとに材質（箱の面の順: +x・-x 端、+y 上、-y 下、+z・-z 横）
   const gateGeo = new THREE.BoxGeometry(1, 1, 1);
-  const gates = new THREE.InstancedMesh(gateGeo, M.gate, data.gates.length);
-  const tops = new THREE.InstancedMesh(gateGeo, M.gateTop, data.gates.length);
+  const GT = gateTextures();
+  const gEnd = new THREE.MeshLambertMaterial({ map: GT.end }), gTop = new THREE.MeshLambertMaterial({ map: GT.top }), gSide = new THREE.MeshLambertMaterial({ map: GT.side });
+  const gates = new THREE.InstancedMesh(gateGeo, [gEnd, gEnd, gTop, M.gate, gSide, gSide], data.gates.length);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
   data.gates.forEach(([cx, cy, l, len, wid, ang], i) => {
     const z = lz(l);
     q.setFromAxisAngle(up, ang);
-    m4.compose(new THREE.Vector3(...V(cx, cy, z + 0.48)), q, new THREE.Vector3(len, 0.96, wid));
+    m4.compose(new THREE.Vector3(...V(cx, cy, z + 0.5)), q, new THREE.Vector3(len, 1.0, wid));
     gates.setMatrixAt(i, m4);
-    m4.compose(new THREE.Vector3(...V(cx, cy, z + 0.98)), q, new THREE.Vector3(len * 0.6, 0.04, wid * 0.9));
-    tops.setMatrixAt(i, m4);
     // 当たりは改札機の真ん中の 1 本の線（データの改札機の中心どうしは 0.55 m ほどで、厚みを入れると体が通れない）
     const ux = Math.cos(ang) * len / 2, uy = Math.sin(ang) * len / 2;
     phys.addSeg(cx - ux, cy - uy, cx + ux, cy + uy, z, z + 1.0);
+    phys.segs[phys.segs.length - 1].gate = true; // 道を探すマス目ではふさがない
   });
-  scene.add(gates, tops);
+  scene.add(gates);
 
   // 地下街（PLATEAU）
   const L = data.mall.layout;
@@ -418,7 +493,7 @@ export function buildWorld(data, mallBuf, scene) {
   for (let i = 0; i < mf.length; i += 9) phys.addFloor([mf[i], mf[i + 1], mf[i + 2]], [mf[i + 3], mf[i + 4], mf[i + 5]], [mf[i + 6], mf[i + 7], mf[i + 8]]);
   for (const k of ['wall', 'inst']) { const w = get(k); for (let i = 0; i < w.length; i += 9) phys.addWallTri(w.subarray(i, i + 9)); }
   const mallMeshes = [
-    meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall), meshOf(toThree(get('ceil')), M.mallCeil),
+    meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall, { uv: 'side' }), meshOf(toThree(get('ceil')), M.mallCeil),
     meshOf(toThree(get('inst')), M.mallInst), meshOf(toThree(get('door')), M.mallDoor),
   ];
   scene.add(...mallMeshes);
@@ -479,7 +554,7 @@ export function buildWorld(data, mallBuf, scene) {
   // まとめて置く
   const UV = new Set(['concourse', 'platform', 'toilet', 'apron']);
   for (const [k, pos] of Object.entries(buckets)) {
-    const mesh = meshOf(pos, M[k], { uv: UV.has(k), colors: k === 'shop' ? colors : null });
+    const mesh = meshOf(pos, M[k], { uv: uvs[k] || UV.has(k), colors: k === 'shop' ? colors : null });
     if (k === 'glass') mesh.renderOrder = 2;
     scene.add(mesh);
   }
