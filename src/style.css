@@ -57,6 +57,12 @@ a.btn { text-decoration: none; display: inline-block; }
 .mapBtns .zoom { display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
 .mapBtns .zoom button { box-shadow: none; border-radius: 0; }
 .mapBtns .zoom button + button { border-top: 1px solid #e3e3e3; }
+.floorPick { position: absolute; left: 6px; top: 6px; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+.floorPick button { width: 34px; height: 28px; border: none; background: #fff; color: #444; font-size: 12px; font-weight: 700; padding: 0; position: relative; }
+.floorPick button + button { border-top: 1px solid #e3e3e3; }
+.floorPick button.on { background: #1a73e8; color: #fff; }
+.floorPick button.me::after { content: ''; position: absolute; right: 3px; top: 3px; width: 5px; height: 5px; border-radius: 50%; background: #1a73e8; }
+.floorPick button.on.me::after { background: #fff; }
 #mLocate.on svg circle:first-child { fill: #1a73e8; }
 #mLocate:not(.on) { color: #888; }
 
@@ -70,6 +76,19 @@ a.btn { text-decoration: none; display: inline-block; }
 #stick[hidden] { display: none; }
 #stick .knob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255,255,255,0.8); }
 
+/* 十字キー（スマホだけ） */
+#dpad { position: fixed; left: 14px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 10px); width: 150px; height: 150px; display: none; grid-template: repeat(3, 1fr) / repeat(3, 1fr); gap: 3px; touch-action: none; user-select: none; -webkit-user-select: none; }
+body.touch #dpad { display: grid; }
+#dpad button { border: none; border-radius: 12px; background: rgba(255,255,255,0.72); color: #333; font-size: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.25); touch-action: none; -webkit-touch-callout: none; }
+#dpad button.on { background: var(--accent); color: #fff; }
+#dpad .u { grid-area: 1 / 2; } #dpad .l { grid-area: 2 / 1; } #dpad .c { grid-area: 2 / 2; font-size: 12px; font-weight: 700; border-radius: 50%; } #dpad .r { grid-area: 2 / 3; } #dpad .d { grid-area: 3 / 2; }
+/* スマホ: 出典は一番下に 1 行（全文は説明の画面）。十字キーと地図はその上 */
+body.touch #credit { left: 8px; right: 8px; max-width: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.touch #dpad { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 14px); }
+body.touch #mini { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 14px); }
+body.riding #view { filter: brightness(0.55); transition: filter 0.4s; }
+#view { transition: filter 0.4s; }
+
 #destPanel, #help { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: grid; place-items: end center; z-index: 10; }
 #destPanel[hidden], #help[hidden] { display: none; }
 .sheet { background: var(--panel); width: min(100vw, 480px); max-height: 75vh; overflow: auto; border-radius: 16px 16px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: var(--shadow); }
@@ -80,8 +99,12 @@ a.btn { text-decoration: none; display: inline-block; }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; margin-right: 2px; background: rgba(127,127,127,0.08); }
 body.touch .pc, body:not(.touch) .touch { display: none; }
 .sheet .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.seg { display: inline-flex; background: rgba(127,127,127,0.15); border-radius: 10px; padding: 3px; }
+.seg button { border: none; background: transparent; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; color: var(--sub); }
+.seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 .grp { font-size: 12px; color: var(--sub); margin: 12px 0 4px; font-weight: 700; }
 .item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none; background: transparent; padding: 10px 6px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.item small { color: var(--sub); font-size: 12px; }
 .item .tag { font-size: 12px; color: var(--sub); margin-left: auto; white-space: nowrap; }
 .dot { width: 26px; height: 26px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
 
@@ -93,5 +116,10 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
   #mini { width: 150px; height: 150px; }
   #credit { max-width: calc(100vw - 175px); }
   #replayBar { left: 12px; transform: none; width: calc(100vw - 190px); }
+  #mini { width: 160px; height: 160px; }
+  .mapBtns { gap: 4px; right: 4px; bottom: 4px; }
+  .mapBtns button { width: 30px; height: 30px; font-size: 18px; }
+  .floorPick button { width: 30px; height: 26px; font-size: 11px; }
+  body.touch #replayBar { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 184px); left: 12px; width: calc(100vw - 24px); }
   .brand span { display: none; }
 }

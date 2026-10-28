@@ -15,6 +15,7 @@ const [data, mallBuf] = await Promise.all([
   fetch('data/mall.bin').then((r) => r.arrayBuffer()),
 ]);
 $('credit').textContent = '出典: ' + data.credits.join(' ／ ');
+$('helpCredit').textContent = '出典: ' + data.credits.join(' ／ ');
 const LV = data.levels;
 const levelOf = (z) => Number(Object.keys(LV).reduce((b, k) => (Math.abs(LV[k].z - z) < Math.abs(LV[b].z - z) ? k : b)));
 
@@ -86,9 +87,14 @@ const addSign = (s, x, y, z) => {
 for (const d of data.dest) {
   const z = LV[d.level].z;
   if (d.t === 'gate') for (const [x, y] of d.pts) { const s = sign(d.name, { bg: '#f5c400' }); s.userData.key = d.name; addSign(s, x, y, z + 2.45); }
-  if (d.t === 'toilet') { const s = sign(d.name, { bg: '#1c3f74', fg: '#fff', badge: d.kind === 'M' ? '♂' : d.kind === 'F' ? '♀' : '♿', badgeColor: d.kind === 'M' ? '#1f6fd1' : d.kind === 'F' ? '#d0344a' : '#2f8f5b' }); s.userData.key = d.name; addSign(s, d.x, d.y, z + 2.35); }
+  if (d.t === 'toilet') { // 扉の上（扉が分かれば少し外側）
+    const s = sign(d.name, { bg: '#1c3f74', fg: '#fff', badge: d.kind === 'M' ? '♂' : d.kind === 'F' ? '♀' : '♿', badgeColor: d.kind === 'M' ? '#1f6fd1' : d.kind === 'F' ? '#d0344a' : '#2f8f5b' });
+    s.userData.key = d.name;
+    const [sx, sy] = d.door ? [d.door[0] + (d.out[0] - d.door[0]) * 0.35, d.door[1] + (d.out[1] - d.door[1]) * 0.35] : [d.x, d.y];
+    addSign(s, sx, sy, z + 2.35);
+  }
   // 階段の上の端の近くには置かない（上ってくる途中で目の前に大きく出る）
-  if (d.t === 'plat') for (const [x, y] of d.signs) { if (data.ramps.some((r) => r.lb === d.level && Math.hypot(r.b[0] - x, r.b[1] - y) < 6)) continue; const s = sign(d.name.replace(/^\d+番線 /, ''), { bg: '#fff', badge: String(d.code), badgeColor: d.color }); s.userData.key = d.name; addSign(s, x, y, z + 2.7); }
+  if (d.t === 'plat') for (const [x, y] of d.signs) { if (data.ramps.some((r) => r.lb === d.level && Math.hypot(r.b[0] - x, r.b[1] - y) < 6)) continue; const s = sign(`${d.name.replace(/^\d+番線 /, '')} ${d.dir || ''}`.trim(), { bg: '#fff', badge: String(d.code), badgeColor: d.color }); s.userData.key = d.name; addSign(s, x, y, z + 2.7); }
 }
 // 階段・エスカレーターの下に、上った先の番線（ホームに着かないものは上の階の改札）
 const ROUTE_NAME = Object.fromEntries(data.dest.filter((d) => d.t === 'plat').map((d) => [d.route, [d.name.replace(/^\d+番線 /, ''), d.color]]));
@@ -96,8 +102,8 @@ for (const r of data.ramps) {
   const len = Math.hypot(r.b[0] - r.a[0], r.b[1] - r.a[1]), dx = (r.b[0] - r.a[0]) / len, dy = (r.b[1] - r.a[1]) / len;
   let s;
   if (r.to && r.to.length) {
-    const routes = [...new Set(r.to.map((t) => t.route))];
-    s = sign(routes.map((k) => ROUTE_NAME[k]?.[0] || k).join('・'), { bg: '#fff', arrow: 'up', badges: r.to.map((t) => [String(t.code), ROUTE_NAME[t.route]?.[1]]) });
+    const routes = [...new Set(r.to.map((t) => t.route))], dirs = [...new Set(r.to.map((t) => t.dir).filter(Boolean))];
+    s = sign(`${routes.map((k) => ROUTE_NAME[k]?.[0] || k).join('・')} ${dirs.join('／')}`.trim(), { bg: '#fff', arrow: 'up', badges: r.to.map((t) => [String(t.code), ROUTE_NAME[t.route]?.[1]]) });
     s.userData.key = 'to' + r.to.map((t) => t.code).join();
   } else {
     const g = data.dest.filter((d) => d.t === 'gate' && d.level === r.lb).sort((p, q) => Math.hypot(p.x - r.b[0], p.y - r.b[1]) - Math.hypot(q.x - r.b[0], q.y - r.b[1]))[0];
@@ -198,6 +204,23 @@ view.addEventListener('pointerup', endPtr);
 view.addEventListener('pointercancel', endPtr);
 view.addEventListener('contextmenu', (e) => e.preventDefault());
 
+// 十字キー（スマホ）: ↑↓ で前後、←→ で向きを変える。押している間ずっと。「走る」は切り替え
+let running = false;
+for (const b of document.querySelectorAll('#dpad [data-k]')) {
+  const k = b.dataset.k;
+  const on = (e) => {
+    e.preventDefault();
+    try { b.setPointerCapture(e.pointerId); } catch { /* つかめなくても押している間は動く */ }
+    keys.add(k); b.classList.add('on');
+  };
+  const off = () => { keys.delete(k); b.classList.remove('on'); };
+  b.addEventListener('pointerdown', on);
+  b.addEventListener('pointerup', off);
+  b.addEventListener('pointercancel', off);
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+$('runBtn').onclick = () => { running = !running; $('runBtn').classList.toggle('on', running); };
+
 // ---------- 経路（GTFS-Pathways） ----------
 const GN = data.graph.n;
 const adj = GN.map(() => []);
@@ -217,7 +240,9 @@ function findRoute(px, py, pl, d) {
       for (let v = u; v >= 0; v = prev[v]) chain.push(v);
       chain.reverse();
       const pts = [{ x: px, y: py, l: pl, mode: 1 }, ...chain.map((v) => ({ x: GN[v][0], y: GN[v][1], l: GN[v][2], mode: pmode[v] || 1 }))];
-      if (d.t === 'toilet') pts.push({ x: d.x, y: d.y, l: d.level, mode: 1 });
+      // トイレは 扉の外 → 扉 → 中 の順にたどる（扉が分からないものはトイレの点へ）
+      if (d.t === 'toilet') for (const [x, y] of d.door ? [d.out, d.door, d.in] : [[d.x, d.y]]) pts.push({ x, y, l: d.level, mode: 1 });
+      if (d.t === 'elev') pts.push({ x: d.x, y: d.y, l: d.level, mode: 1 }); // 箱の中まで
       return pts;
     }
     done[u] = 1;
@@ -267,7 +292,7 @@ function setDest(d) {
   nav.dest = d; nav.arrived = false; nav.lastCalc = 0; nav.at = null;
   $('guide').hidden = !d;
   if (!d) { nav.pts = null; drawChevrons(); return; }
-  $('gName').textContent = d.name + (d.t === 'toilet' ? `（${LV[d.level].name}）` : '');
+  $('gName').textContent = d.name + (d.t === 'toilet' ? `（${LV[d.level].name}）` : d.dir ? ` ${d.dir}` : '');
   recalc();
 }
 function recalc() {
@@ -332,8 +357,20 @@ function updateGuide() {
   }
 }
 
-// 行き先を選ぶ
-function openDest() {
+// 出発地・行き先を選ぶ。出発地を選ぶとそこへ移動し、続けて行き先を選べる
+let destMode = 'to', startName = null;
+const startPoint = (d) => (d.t === 'toilet' && d.out ? d.out : [d.x, d.y]);
+function startAt(d, animate = true) {
+  const [x, y] = startPoint(d);
+  startName = d.name;
+  if (animate) { jumpTo(x, y, d.level); return; }
+  const p = landingAt(x, y, d.level);
+  if (p) { [me.x, me.y, me.z] = p; me.eye = me.z + EYE; }
+}
+function openDest(mode = destMode) {
+  destMode = mode;
+  for (const b of document.querySelectorAll('#destSeg button')) b.classList.toggle('on', b.dataset.m === mode);
+  $('destNote').textContent = mode === 'from' ? '選んだ所へ移動します（右下の地図をタップしても移動できます）' : startName ? `出発地: ${startName}` : '';
   const list = $('destList');
   list.innerHTML = '';
   const pl = levelOf(me.z);
@@ -343,19 +380,35 @@ function openDest() {
       const b = document.createElement('button');
       b.className = 'item'; b.type = 'button';
       b.innerHTML = html + (tag ? `<span class="tag">${tag}</span>` : '');
-      b.onclick = () => { $('destPanel').hidden = true; setDest(d); };
+      b.onclick = () => {
+        if (destMode === 'from') { startAt(d); openDest('to'); return; }
+        $('destPanel').hidden = true; setDest(d);
+      };
       list.append(b);
     }
   };
   const dist = (d) => Math.hypot(d.x - me.x, d.y - me.y) + Math.abs(d.level - pl) * 30;
   const gates = data.dest.filter((d) => d.t === 'gate');
   add('改札', gates.map((d) => [d, `<span class="dot" style="background:#f5c400;color:#111">改</span>${d.name}`, LV[d.level].name]));
-  add('ホーム', data.dest.filter((d) => d.t === 'plat').map((d) => [d, `<span class="dot" style="background:${d.color}">${d.code}</span>${d.name}`, '']));
+  add('ホーム', data.dest.filter((d) => d.t === 'plat').map((d) => [d, `<span class="dot" style="background:${d.color}">${d.code}</span><span>${d.name} <b>${d.dir || ''}</b>${d.heads?.length ? `<br><small>主な行き先: ${d.heads.join('・')}</small>` : ''}</span>`, '']));
   const toilets = data.dest.filter((d) => d.t === 'toilet').sort((a, b) => dist(a) - dist(b));
+  const elevs = data.dest.filter((d) => d.t === 'elev' && d.level === pl).sort((a, b) => dist(a) - dist(b));
+  if (elevs.length) add(`エレベーター（${LV[pl].name}・近い順）`, elevs.map((d) => [d, `<span class="dot" style="background:#6b737b">EV</span>${d.name.replace(/^エレベーター（(.*)）$/, '$1')}`, `約${Math.round(dist(d))} m`]));
   add('トイレ（近い順）', toilets.map((d) => [d, `<span class="dot" style="background:${d.kind === 'M' ? '#1f6fd1' : d.kind === 'F' ? '#d0344a' : '#2f8f5b'}">${d.kind === 'M' ? '♂' : d.kind === 'F' ? '♀' : '♿'}</span>${d.name}`, `${LV[d.level].name}・約${Math.round(dist(d))} m`]));
   $('destPanel').hidden = false;
 }
-$('destBtn').onclick = openDest;
+$('destBtn').onclick = () => openDest('to');
+for (const b of document.querySelectorAll('#destSeg button')) b.onclick = () => openDest(b.dataset.m);
+// 案内を共有: 出発地（選んでいれば）と行き先を URL に
+$('gShare').onclick = async () => {
+  if (!nav.dest) return;
+  const q = new URLSearchParams();
+  if (startName) q.set('from', startName);
+  q.set('to', nav.dest.name);
+  const url = `${location.origin}${location.pathname}?${q}`;
+  if (navigator.share) { try { await navigator.share({ title: 'エキさんぽの案内', text: `${startName ? startName + ' から ' : ''}${nav.dest.name} への案内`, url }); return; } catch { /* 取り消し */ } }
+  copy(url);
+};
 $('destClose').onclick = () => { $('destPanel').hidden = true; };
 $('destPanel').onclick = (e) => { if (e.target === $('destPanel')) $('destPanel').hidden = true; };
 $('gClose').onclick = () => setDest(null);
@@ -386,17 +439,19 @@ function updateElev() {
     b.onclick = () => {
       const t = data.elevs.find((v) => v.l === l && Math.hypot(v.x - e.x, v.y - e.y) < 3);
       if (!t) return;
-      Object.assign(me, { x: t.x, y: t.y, z: LV[l].z });
-      me.eye = me.z + EYE;
+      // 扉が閉まって（画面を少し暗く）、2.5 秒かけて上り下りする
       elevHere = null; box.hidden = true;
-      toast(`${LV[l].name} に着きました`);
+      toast(l > e.l ? '上へまいります' : '下へまいります');
+      document.body.classList.add('riding');
+      jump = { from: [me.x, me.y, me.z], to: [t.x, t.y, LV[l].z], t: 0, dur: 2.5, msg: `${LV[l].name} に着きました`, yaw0: me.yaw };
     };
     box.append(b);
   }
 }
 
 // ---------- 小さな地図 ----------
-const mini = { cx: me.x, cy: me.y, s: 1.6, rot: 0, follow: true };
+// floor: 地図に出している階（null なら自分のいる階）
+const mini = { cx: me.x, cy: me.y, s: 1.6, rot: 0, follow: true, floor: null };
 const mcv = $('miniCv'), mg = mcv.getContext('2d');
 const paths = {}; // 階ごとの Path2D
 for (const l of Object.keys(LV)) {
@@ -434,7 +489,8 @@ function drawMini() {
   mg.setTransform(dpr, 0, 0, dpr, 0, 0);
   mg.fillStyle = '#e9e6df';
   mg.fillRect(0, 0, W, H);
-  const pl = String(levelOf(me.z));
+  const cur = String(levelOf(me.z));
+  const pl = mini.floor ?? cur;
   const P = paths[pl];
   mg.setTransform(dpr * k * c, -dpr * k * s, -dpr * k * s, -dpr * k * c, dpr * (W / 2 - k * (c * mini.cx - s * mini.cy)), dpr * (H / 2 + k * (s * mini.cx + c * mini.cy)));
   mg.fillStyle = '#fbfaf6'; mg.fill(P.mall);
@@ -486,16 +542,22 @@ function drawMini() {
     const [x, y] = W2S(nav.dest.x, nav.dest.y);
     mg.fillStyle = '#e8453c'; mg.beginPath(); mg.arc(x, y - 9, 6, 0, Math.PI * 2); mg.moveTo(x - 5, y - 6); mg.lineTo(x, y); mg.lineTo(x + 5, y - 6); mg.fill();
   }
-  // 自分（向きつき）
+  // 移動先
+  if (jump) {
+    const [x, y] = W2S(jump.to[0], jump.to[1]);
+    mg.strokeStyle = '#1a73e8'; mg.lineWidth = 2.5;
+    mg.beginPath(); mg.arc(x, y, 8, 0, Math.PI * 2); mg.stroke();
+  }
+  // 自分（向きつき）。ほかの階を出しているときは薄く
   const [px, py] = W2S(me.x, me.y);
   const a = me.yaw - mini.rot;
   mg.save(); mg.translate(px, py); mg.rotate(a);
+  if (pl !== cur) mg.globalAlpha = 0.35;
   mg.fillStyle = 'rgba(26,115,232,0.18)'; mg.beginPath(); mg.moveTo(0, 0); mg.arc(0, 0, 26, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); mg.fill();
   mg.fillStyle = '#1a73e8'; mg.strokeStyle = '#fff'; mg.lineWidth = 2;
   mg.beginPath(); mg.moveTo(0, -9); mg.lineTo(6, 6); mg.lineTo(0, 3); mg.lineTo(-6, 6); mg.closePath(); mg.fill(); mg.stroke();
   mg.restore();
-  mg.fillStyle = 'rgba(0,0,0,0.55)'; mg.font = 'bold 11px system-ui, sans-serif'; mg.textAlign = 'left';
-  mg.fillText(LV[pl].name, 8, 14);
+  for (const b of floorBtns) { b.classList.toggle('on', b.dataset.l === pl); b.classList.toggle('me', b.dataset.l === cur); }
   $('needle').setAttribute('transform', `rotate(${(-mini.rot * 180) / Math.PI} 12 12)`);
   $('mLocate').classList.toggle('on', mini.follow);
 }
@@ -520,11 +582,23 @@ const panBy = (dx, dy) => {
   mini.cx -= bx - ax; mini.cy -= by - ay;
 };
 const local = (e) => { const r = mcv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-mcv.addEventListener('pointerdown', (e) => { mcv.setPointerCapture(e.pointerId); const [x, y] = local(e); mp.set(e.pointerId, { x, y, btn: e.button }); });
+// 指 1 本・左クリックで、ほとんど動かさずに離したら「タップ」（その場所へ移動）
+let tap = null;
+mcv.addEventListener('pointerdown', (e) => {
+  mcv.setPointerCapture(e.pointerId);
+  const [x, y] = local(e);
+  mp.set(e.pointerId, { x, y, btn: e.button });
+  tap = mp.size === 1 && e.button === 0 ? { id: e.pointerId, x, y, t: performance.now(), moved: false } : null;
+});
 mcv.addEventListener('pointermove', (e) => {
   const p = mp.get(e.pointerId);
   if (!p) return;
   const [x, y] = local(e);
+  if (tap && tap.id === e.pointerId && !tap.moved) {
+    if (Math.hypot(x - tap.x, y - tap.y) < 6) return; // まだタップかもしれない
+    tap.moved = true;
+    p.x = tap.x; p.y = tap.y;
+  }
   if (mp.size === 1) {
     mini.follow = false;
     if (p.btn === 2) rotateAt(mcv.clientWidth / 2, mcv.clientHeight / 2, (x - p.x) * 0.01);
@@ -541,13 +615,79 @@ mcv.addEventListener('pointermove', (e) => {
   }
   p.x = x; p.y = y;
 });
-const mEnd = (e) => mp.delete(e.pointerId);
+const mEnd = (e) => {
+  mp.delete(e.pointerId);
+  if (tap && tap.id === e.pointerId) {
+    if (e.type === 'pointerup' && !tap.moved && performance.now() - tap.t < 600) jumpTo(...S2W(tap.x, tap.y), Number(mini.floor ?? levelOf(me.z)));
+    tap = null;
+  }
+};
 mcv.addEventListener('pointerup', mEnd);
 mcv.addEventListener('pointercancel', mEnd);
 mcv.addEventListener('contextmenu', (e) => e.preventDefault());
 mcv.addEventListener('wheel', (e) => { e.preventDefault(); const [x, y] = local(e); zoomAt(x, y, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
 $('mCompass').onclick = () => { mini.rot = 0; };
-$('mLocate').onclick = () => { mini.follow = true; };
+$('mLocate').onclick = () => { mini.follow = true; mini.floor = null; };
+
+// 階の切り替え（地図の左に、上の階から）
+const floorBtns = Object.keys(LV).sort((p, q) => q - p).map((l) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = LV[l].name; b.dataset.l = l;
+  b.setAttribute('aria-label', `${LV[l].name} の地図`);
+  b.onclick = () => { mini.floor = l === String(levelOf(me.z)) ? null : l; };
+  $('floorPick').append(b);
+  return b;
+});
+let lastLevel = levelOf(me.z);
+function watchLevel() { // 歩いて階が変わったら、地図も自分の階に戻す
+  const l = levelOf(me.z);
+  if (l !== lastLevel) { lastLevel = l; if (mini.follow) mini.floor = null; }
+}
+
+// 地図でタップした所へ移動（ストリートビューのように）。歩けない所なら 3 m 以内の歩ける所へ寄せる
+let jump = null;
+function landingAt(x, y, level) {
+  const z0 = LV[level].z;
+  const pick = (px, py) => {
+    const zs = phys.surfacesAt(px, py).filter((z) => z > z0 - 1.5 && z < z0 + (level === -1 ? 2.5 : 0.6));
+    if (!zs.length) return null;
+    const z = zs.reduce((b, v) => (Math.abs(v - z0) < Math.abs(b - z0) ? v : b));
+    const [cx, cy] = phys.collide(px, py, z);
+    const gz = phys.groundAt(cx, cy, z);
+    return gz == null ? null : [cx, cy, gz];
+  };
+  for (let r = 0; r <= 3; r += 0.5) for (let k = 0; k < (r ? 12 : 1); k++) {
+    const a = (k / 12) * Math.PI * 2, p = pick(x + Math.sin(a) * r, y + Math.cos(a) * r);
+    if (p) return p;
+  }
+  return null;
+}
+function jumpTo(x, y, level) {
+  const to = landingAt(x, y, level);
+  if (!to) { toast('そこへは行けません'); return; }
+  pauseReplay('止めました（ここから歩けます）');
+  jump = { from: [me.x, me.y, me.z], to, t: 0, dur: Math.min(1.2, 0.35 + Math.hypot(to[0] - me.x, to[1] - me.y) / 120) };
+  // 進む向きを向く（真上をタップしたときはそのまま）
+  if (Math.hypot(to[0] - me.x, to[1] - me.y) > 1) jump.yaw = Math.atan2(to[0] - me.x, to[1] - me.y);
+  jump.yaw0 = me.yaw;
+}
+function updateJump(dt) {
+  if (!jump) return false;
+  jump.t += dt / jump.dur;
+  const u = Math.min(1, jump.t), e = u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2;
+  const [fx, fy, fz] = jump.from, [tx, ty, tz] = jump.to;
+  me.x = fx + (tx - fx) * e; me.y = fy + (ty - fy) * e; me.z = fz + (tz - fz) * e;
+  if (jump.yaw != null) { const d = Math.atan2(Math.sin(jump.yaw - jump.yaw0), Math.cos(jump.yaw - jump.yaw0)); me.yaw = jump.yaw0 + d * Math.min(1, u * 2); }
+  if (u >= 1) {
+    const msg = jump.msg || (levelOf(me.z) !== levelOf(fz) ? `${LV[levelOf(me.z)].name} に移動しました` : '');
+    jump = null;
+    mini.floor = null;
+    mini.follow = true;
+    document.body.classList.remove('riding');
+    if (msg) toast(msg);
+  }
+  return true;
+}
 $('mIn').onclick = () => zoomAt(mcv.clientWidth / 2, mcv.clientHeight / 2, 1.4);
 $('mOut').onclick = () => zoomAt(mcv.clientWidth / 2, mcv.clientHeight / 2, 1 / 1.4);
 
@@ -678,6 +818,15 @@ async function loadReplay() {
   }
 }
 const replaying = await loadReplay();
+// URL の ?from=出発地&to=行き先（名前。「5番線」のように先頭だけでもよい）
+if (!replaying) {
+  const q = new URLSearchParams(location.search);
+  const find = (s) => s && (data.dest.find((d) => d.name === s) || data.dest.find((d) => d.name.startsWith(s)));
+  const from = find(q.get('from')), to = find(q.get('to'));
+  if (from) startAt(from, false);
+  if (to) setDest(to);
+  if (from && to && nav.pts) { const p = nav.pts.find((t, i) => i > 0 && Math.hypot(t.x - me.x, t.y - me.y) > 3); if (p) me.yaw = Math.atan2(p.x - me.x, p.y - me.y); }
+}
 
 // ---------- はじめの説明 ----------
 const seen = (() => { try { return localStorage.getItem('ekisanpo.help') === '1'; } catch { return false; } })();
@@ -708,13 +857,17 @@ function frame(now) {
   if (keys.has('ArrowLeft')) turn -= 1;
   if (keys.has('ArrowRight')) turn += 1;
   me.yaw += turn * 1.9 * dt;
-  let speed = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 3.2 : 1.5;
+  const RUN = 5.0, WALK = 1.5; // 走る・歩く速さ（m/秒）
+  let speed = keys.has('ShiftLeft') || keys.has('ShiftRight') || running ? RUN : WALK;
   if (stick.id != null) {
     f += stick.vy; s += stick.vx;
-    speed = 1.5 + Math.max(0, Math.hypot(stick.vx, stick.vy) - 0.85) * 8;
+    // スティックは大きく倒すと走る
+    speed = running ? RUN : WALK + Math.max(0, Math.hypot(stick.vx, stick.vy) - 0.85) * ((RUN - WALK) / 0.15);
   }
   const mag = Math.hypot(f, s);
-  if (replay.playing) {
+  if (updateJump(dt)) {
+    // 地図で選んだ所へ移動中は、歩く操作を受けない
+  } else if (replay.playing) {
     if (mag > 0.01 || turn) pauseReplay('止めました（ここから歩けます）');
     else {
       replay.t += dt * 1000;
@@ -740,6 +893,7 @@ function frame(now) {
   const fl = LV[levelOf(me.z)].name;
   if (fl !== floorShown) { $('floor').textContent = fl; floorShown = fl; }
   trains.update(dt);
+  watchLevel();
   updateGuide();
   updateElev();
   drawMini();
@@ -750,4 +904,4 @@ $('loading').hidden = true;
 requestAnimationFrame(frame);
 
 // 確かめ用（コンソールから位置を見る・動かす）
-window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains };
+window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W };

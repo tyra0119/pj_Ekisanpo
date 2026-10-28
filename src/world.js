@@ -48,6 +48,7 @@ function materials() {
     roof: lam({ color: '#e6e4de', emissive: '#8f8c86', side: THREE.DoubleSide }),
     wall: lam({ map: tileTexture('#ece7dc', '#d8d1c2', 128, 4), side: THREE.DoubleSide }),
     staff: lam({ color: '#d4d6d8', side: THREE.DoubleSide }),
+    elevWall: lam({ color: '#b7bec5', emissive: '#30363c', side: THREE.DoubleSide }), // ステンレスのエレベーター
     shop: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     glass: new THREE.MeshLambertMaterial({ color: '#9fc6d6', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
     frame: lam({ color: '#7d858c' }),
@@ -64,6 +65,7 @@ function materials() {
     mallInst: lam({ color: '#a9a49b', side: THREE.DoubleSide }),
     mallDoor: new THREE.MeshLambertMaterial({ color: '#b5d3df', transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
     track: lam({ color: '#8a7f70' }),
+    apron: lam({ map: tileTexture('#b9b5ad', '#a29d94', 128, 2), side: THREE.DoubleSide }), // 向きが辺ごとに違うので両面
   };
 }
 
@@ -106,7 +108,7 @@ class Grid {
 export class Physics {
   constructor() {
     this.floors = []; // [ax,ay,az,bx,by,bz,cx,cy,cz]
-    this.segs = [];   // {ax,ay,bx,by,z0,z1a,z1b}（上の端の高さは a→b で直線的に変わる）
+    this.segs = [];   // {ax,ay,bx,by,z0a,z0b,z1a,z1b}（下の端・上の端の高さは a→b で直線的に変わる）
     this.wtris = [];  // 地下街の壁（その場で水平に切って線にする）
     this.fg = new Grid(3); this.sg = new Grid(3); this.wg = new Grid(3);
   }
@@ -114,8 +116,8 @@ export class Physics {
     const i = this.floors.push([...a, ...b, ...c]) - 1;
     this.fg.add(i, Math.min(a[0], b[0], c[0]), Math.min(a[1], b[1], c[1]), Math.max(a[0], b[0], c[0]), Math.max(a[1], b[1], c[1]));
   }
-  addSeg(ax, ay, bx, by, z0, z1a, z1b = z1a) {
-    const i = this.segs.push({ ax, ay, bx, by, z0, z1a, z1b }) - 1;
+  addSeg(ax, ay, bx, by, z0, z1a, z1b = z1a, z0b = z0) {
+    const i = this.segs.push({ ax, ay, bx, by, z0a: z0, z0b, z1a, z1b }) - 1;
     this.sg.add(i, ax, ay, bx, by);
   }
   addWallTri(t) {
@@ -138,15 +140,28 @@ export class Physics {
     }
     return best;
   }
+  // (x, y) の真下と真上にある床の高さすべて（地図でタップした所の床を探す）
+  surfacesAt(x, y) {
+    const out = [];
+    for (const i of this.fg.near(x, y)) {
+      const [ax, ay, az, bx, by, bz, cx, cy, cz] = this.floors[i];
+      const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+      if (Math.abs(d) < 1e-9) continue;
+      const l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d;
+      const l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / d;
+      if (l1 < -1e-4 || l2 < -1e-4 || 1 - l1 - l2 < -1e-4) continue;
+      out.push(l1 * az + l2 * bz + (1 - l1 - l2) * cz);
+    }
+    return out;
+  }
   // 胸の高さで当たる線の一覧（JR の壁・手すり・改札機と、地下街の壁を切ったもの）
   segsNear(x, y, h, r) {
     const out = [];
     for (const i of this.sg.near(x, y, r)) {
       const s = this.segs[i];
-      if (h < s.z0) continue;
       const dx = s.bx - s.ax, dy = s.by - s.ay, L = dx * dx + dy * dy;
       const t = L ? Math.max(0, Math.min(1, ((x - s.ax) * dx + (y - s.ay) * dy) / L)) : 0;
-      if (h > s.z1a + (s.z1b - s.z1a) * t) continue;
+      if (h < s.z0a + (s.z0b - s.z0a) * t || h > s.z1a + (s.z1b - s.z1a) * t) continue;
       out.push([s.ax, s.ay, s.bx, s.by]);
     }
     for (const i of this.wg.near(x, y, r)) {
@@ -166,7 +181,8 @@ export class Physics {
   }
   // 体（円）を線から押し出す
   collide(x, y, feet) {
-    const segs = [...this.segsNear(x, y, feet + 0.9, 1.5), ...this.segsNear(x, y, feet + 0.3, 1.5)];
+    // すね・胸・頭の高さ（頭は階段の下をくぐれるかどうか）
+    const segs = [...this.segsNear(x, y, feet + 0.9, 1.5), ...this.segsNear(x, y, feet + 0.3, 1.5), ...this.segsNear(x, y, feet + 1.75, 1.5)];
     for (let it = 0; it < 4; it++) {
       let moved = false;
       for (const [ax, ay, bx, by] of segs) {
@@ -191,6 +207,36 @@ function triangulate(rings) {
   return faces.map((f) => f.map((i) => all[i]));
 }
 
+// 多角形（[[x,y],...]）から凸多角形（反時計回り）を引いた残りを、凸の多角形の配列で返す。
+// 凸の各辺について「その辺の外側 ∩ それまでの辺の内側」を切り出していく（Sutherland–Hodgman）
+const side = (p, q, v) => (q[0] - p[0]) * (v[1] - p[1]) - (q[1] - p[1]) * (v[0] - p[0]);
+function clipHalf(poly, p, q, keepLeft) {
+  const out = [], sg = keepLeft ? 1 : -1;
+  for (let i = 0; i < poly.length; i++) {
+    const A = poly[i], B = poly[(i + 1) % poly.length];
+    const sa = side(p, q, A) * sg, sb = side(p, q, B) * sg;
+    if (sa >= 0) out.push(A);
+    if ((sa >= 0) !== (sb >= 0)) { const t = sa / (sa - sb); out.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]); }
+  }
+  return out;
+}
+const polyArea = (p) => { let s = 0; for (let i = 0, j = p.length - 1; i < p.length; j = i++) s += (p[j][0] + p[i][0]) * (p[j][1] - p[i][1]); return Math.abs(s / 2); };
+function minusConvex(poly, R) {
+  const out = [];
+  let inside = poly;
+  for (let i = 0; i < R.length && inside.length >= 3; i++) {
+    const p = R[i], q = R[(i + 1) % R.length];
+    const outer = clipHalf(inside, p, q, false);
+    if (outer.length >= 3 && polyArea(outer) > 1e-4) out.push(outer);
+    inside = clipHalf(inside, p, q, true);
+  }
+  return out;
+}
+const fan = (p) => { const t = []; for (let i = 1; i + 1 < p.length; i++) t.push([p[0], p[i], p[i + 1]]); return t; };
+const bboxOf = (p) => p.reduce((b, [x, y]) => [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)], [Infinity, Infinity, -Infinity, -Infinity]);
+const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+const inConvex = (x, y, R) => R.every((p, i) => side(p, R[(i + 1) % R.length], [x, y]) >= 0);
+
 // ---------- 世界を作る ----------
 export function buildWorld(data, mallBuf, scene) {
   const M = materials();
@@ -200,20 +246,51 @@ export function buildWorld(data, mallBuf, scene) {
   const push = (key, ...pts) => { (buckets[key] = buckets[key] || []).push(...pts.flat()); };
   const colors = []; // 店先の色
 
+  // 坂（階段・エスカレーター）の真上の長方形。下の階の天井（low）と、上の階の床（high、上の端の 0.6 m は残す）から切り抜く
+  const rampRects = data.ramps.map((r) => {
+    const [ax, ay] = r.a, [bx, by] = r.b;
+    const len = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / len, dy = (by - ay) / len;
+    const rect = (s0, s1, hw) => { // 反時計回りの 4 隅
+      const nx = -dy * hw, ny = dx * hw, p0 = [ax + dx * s0, ay + dy * s0], p1 = [ax + dx * s1, ay + dy * s1];
+      return [[p0[0] - nx, p0[1] - ny], [p1[0] - nx, p1[1] - ny], [p1[0] + nx, p1[1] + ny], [p0[0] + nx, p0[1] + ny]];
+    };
+    return { la: r.la, lb: r.lb, low: rect(-0.3, len + 0.4, r.w / 2 + 0.3), high: rect(-0.3, len - 0.6, r.w / 2 + 0.05) };
+  });
+  const cut = (tris, rects) => {
+    let pieces = tris;
+    for (const R of rects) {
+      const rb = bboxOf(R);
+      pieces = pieces.flatMap((p) => (overlaps(bboxOf(p), rb) ? minusConvex(p, R) : [p]));
+    }
+    return pieces.flatMap(fan);
+  };
+
   // 床と天井
   for (const f of data.floors) {
     const z = lz(f.l), lv = data.levels[f.l];
     const mat = f.k === 'plat' ? 'platform' : f.k === 'toilet' ? 'toilet' : f.k === 'elev' ? 'elev' : 'concourse';
-    for (const [a, b, c] of triangulate(f.r)) {
-      phys.addFloor([a.x, a.y, z], [b.x, b.y, z], [c.x, c.y, z]);
-      push(mat, V(a.x, a.y, z), V(b.x, b.y, z), V(c.x, c.y, z));
-      if (f.u) continue; // 階段の下の端は吹き抜け
-      const h = z + (f.k === 'plat' ? 4.4 : lv.ceil);
-      if (f.k === 'plat') push('roof', V(a.x, a.y, h), V(c.x, c.y, h), V(b.x, b.y, h));
+    const tris = triangulate(f.r).map((t) => t.map((v) => [v.x, v.y]));
+    for (const [a, b, c] of cut(tris, rampRects.filter((r) => r.lb === f.l).map((r) => r.high))) {
+      phys.addFloor([a[0], a[1], z], [b[0], b[1], z], [c[0], c[1], z]);
+      push(mat, V(a[0], a[1], z), V(b[0], b[1], z), V(c[0], c[1], z));
+    }
+    if (f.u) continue; // 階段の下の端は吹き抜け
+    const h = z + (f.k === 'plat' ? 4.4 : lv.ceil);
+    for (const [a, b, c] of cut(tris, rampRects.filter((r) => r.la === f.l).map((r) => r.low))) {
+      if (f.k === 'plat') push('roof', V(a[0], a[1], h), V(c[0], c[1], h), V(b[0], b[1], h));
       else {
-        push('ceiling', V(a.x, a.y, h), V(c.x, c.y, h), V(b.x, b.y, h)); // 下から見える向き
-        if (f.l === -1) push('ceilTop', V(a.x, a.y, h + 0.02), V(b.x, b.y, h + 0.02), V(c.x, c.y, h + 0.02));
+        push('ceiling', V(a[0], a[1], h), V(c[0], c[1], h), V(b[0], b[1], h)); // 下から見える向き
+        if (f.l === -1) push('ceilTop', V(a[0], a[1], h + 0.02), V(b[0], b[1], h + 0.02), V(c[0], c[1], h + 0.02));
       }
+    }
+  }
+
+  // 出口の外の床（改札口から街・隣の建物へ 8 m。改札口の点が面の外に数 m 離れていることがある）
+  for (const [x0, y0, x1, y1, nx, ny, l] of data.aprons || []) {
+    const z = lz(l), q = [[x0, y0], [x1, y1], [x1 + nx * 8, y1 + ny * 8], [x0 + nx * 8, y0 + ny * 8]];
+    for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+      phys.addFloor([...a, z], [...b, z], [...c, z]);
+      push('apron', V(a[0], a[1], z), V(c[0], c[1], z), V(b[0], b[1], z));
     }
   }
 
@@ -224,8 +301,8 @@ export function buildWorld(data, mallBuf, scene) {
   let shopN = 0;
   for (const [ax, ay, bx, by, l, k] of data.walls) {
     const z = lz(l), ceil = data.levels[l].ceil;
-    if (k === 'w' || k === 'f') {
-      quad(k === 'w' ? 'wall' : 'staff', ax, ay, bx, by, z, z + ceil);
+    if (k === 'w' || k === 'f' || k === 'e') {
+      quad({ w: 'wall', f: 'staff', e: 'elevWall' }[k], ax, ay, bx, by, z, z + ceil);
       phys.addSeg(ax, ay, bx, by, z, z + ceil);
     } else if (k === 's') {
       // 店先: 下は明るいガラス、上は色の帯
@@ -289,17 +366,30 @@ export function buildWorld(data, mallBuf, scene) {
     } else {
       push('esc', V(...P([ax, ay], 1, az)), V(...P([ax, ay], -1, az)), V(...P([bx, by], -1, bz)), V(...P([ax, ay], 1, az)), V(...P([bx, by], -1, bz)), V(...P([bx, by], 1, bz)));
     }
-    // 両側の壁（下の階の床から、坂の面の 1 m 上まで）と手すり
+    // 段の下は厚み 0.4 m の板。両側の帯は板の下から段の 1 m 上まで。
+    // 高い側の下は、頭がつかえない所（板の下が床から 1.75 m 以上）までくぐれる。その先はふさぐ
+    const TH = 0.4, rise = Math.max(0.01, bz - az);
+    const tk = Math.min(1, TH / rise), th = Math.min(1, (1.75 + TH) / rise);
+    const zAt = (t) => az + rise * t, at = (t) => [ax + (bx - ax) * t, ay + (by - ay) * t];
+    const sideMat = r.t === 's' ? 'side' : 'glass';
+    const band = (q0, q1, b0, b1, u0, u1) => push(sideMat, V(q0[0], q0[1], b0), V(q1[0], q1[1], b1), V(q1[0], q1[1], u1), V(q0[0], q0[1], b0), V(q1[0], q1[1], u1), V(q0[0], q0[1], u0));
     for (const s of [1, -1]) {
-      const p0 = P([ax, ay], s, 0), p1 = P([bx, by], s, 0);
-      push(r.t === 's' ? 'side' : 'glass', V(p0[0], p0[1], az), V(p1[0], p1[1], az), V(p1[0], p1[1], bz + 1), V(p0[0], p0[1], az), V(p1[0], p1[1], bz + 1), V(p0[0], p0[1], az + 1));
+      const p0 = P([ax, ay], s, 0), pk = P(at(tk), s, 0), p1 = P([bx, by], s, 0);
+      band(p0, pk, az, az, az + 1, zAt(tk) + 1);
+      band(pk, p1, az, bz - TH, zAt(tk) + 1, bz + 1);
       push('rail', V(p0[0], p0[1], az + 0.95), V(p1[0], p1[1], bz + 0.95), V(p1[0], p1[1], bz + 1.02), V(p0[0], p0[1], az + 0.95), V(p1[0], p1[1], bz + 1.02), V(p0[0], p0[1], az + 1.02));
-      phys.addSeg(p0[0], p0[1], p1[0], p1[1], az - 0.5, az + 1.05, bz + 1.05);
+      phys.addSeg(p0[0], p0[1], pk[0], pk[1], az - 0.5, az + 1.05, zAt(tk) + 1.05);
+      phys.addSeg(pk[0], pk[1], p1[0], p1[1], az - 0.05, zAt(tk) + 1.05, bz + 1.05, bz - TH);
     }
-    // 上の端の真下をふさぐ壁（下の階から坂の下にもぐり込まないように）
-    const q0 = P(B, 1, 0), q1 = P(B, -1, 0);
-    push('side', V(q0[0], q0[1], az), V(q1[0], q1[1], az), V(q1[0], q1[1], bz - 0.02), V(q0[0], q0[1], az), V(q1[0], q1[1], bz - 0.02), V(q0[0], q0[1], bz - 0.02));
-    phys.addSeg(q0[0], q0[1], q1[0], q1[1], az - 0.5, bz - 0.1);
+    // 板の下面（下の階から見上げたところ）
+    const L0 = P(at(tk), 1, 0), R0 = P(at(tk), -1, 0), L1 = P([bx, by], 1, 0), R1 = P([bx, by], -1, 0);
+    push('side', V(L0[0], L0[1], az), V(R0[0], R0[1], az), V(R1[0], R1[1], bz - TH), V(L0[0], L0[1], az), V(R1[0], R1[1], bz - TH), V(L1[0], L1[1], bz - TH));
+    // 頭がつかえる所から低い側はふさぐ（下の階から段の下にもぐり込まないように）
+    if (th < 1) {
+      const q0 = P(at(th), 1, 0), q1 = P(at(th), -1, 0), uz = zAt(th) - TH;
+      push('side', V(q0[0], q0[1], az), V(q1[0], q1[1], az), V(q1[0], q1[1], uz), V(q0[0], q0[1], az), V(q1[0], q1[1], uz), V(q0[0], q0[1], uz));
+      phys.addSeg(q0[0], q0[1], q1[0], q1[1], az - 0.5, uz);
+    }
   }
 
   // 改札機
@@ -354,6 +444,7 @@ export function buildWorld(data, mallBuf, scene) {
     grid(x0, y0, x1, y1, (x, y) => {
       if (!inRing(x, y, r0) || f.r.slice(1).some((hr) => inRing(x, y, hr))) return;
       if (f.r.some((r) => edgeDist(x, y, r) < 0.8)) return;
+      if (rampRects.some((r) => r.la === f.l && inConvex(x, y, r.low))) return; // 天井を抜いた所
       lights.push([x, y, h]);
     });
   }
@@ -386,7 +477,7 @@ export function buildWorld(data, mallBuf, scene) {
   scene.add(lamp);
 
   // まとめて置く
-  const UV = new Set(['concourse', 'platform', 'toilet']);
+  const UV = new Set(['concourse', 'platform', 'toilet', 'apron']);
   for (const [k, pos] of Object.entries(buckets)) {
     const mesh = meshOf(pos, M[k], { uv: UV.has(k), colors: k === 'shop' ? colors : null });
     if (k === 'glass') mesh.renderOrder = 2;
