@@ -147,9 +147,19 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
   .mapBtns button { width: 30px; height: 30px; font-size: 18px; }
   .floorPick button { width: 30px; height: 26px; font-size: 11px; }
   body.touch #replayBar { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 184px); left: 12px; width: calc(100vw - 24px); }
+  /* エレベーターのボタンも十字キー・小さな地図の上に（実機で十字キーと地図に重なっていた） */
+  body.touch #elev { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 184px); }
   .brand span { display: none; }
   /* 案内中は、案内の札を方角の帯のすぐ下に横いっぱいに出し、駅名・ボタンはその下へ（札が左上のボタンに重なっていた） */
   #guide { left: 12px; right: 12px; transform: none; max-width: none; }
   body:has(#guide:not([hidden])) #top { top: calc(max(6px, env(safe-area-inset-top)) + 112px); }
   body:has(#guide:not([hidden])) #leftBtns { top: calc(max(6px, env(safe-area-inset-top)) + 158px); }
+}
+/* スマホの横向きなど高さの低い画面: 案内の札は右に寄せて左上の駅名・階・改札内外を隠さない。小さな地図とボタンはスマホの縦向きと同じ大きさに（実機の横向きで確かめた） */
+@media (max-height: 500px) and (min-width: 601px) {
+  #guide { left: auto; right: 12px; transform: none; max-width: min(420px, calc(100vw - 340px)); }
+  #mini { width: 160px; height: 160px; }
+  .mapBtns { gap: 4px; right: 4px; bottom: 4px; }
+  .mapBtns button { width: 30px; height: 30px; font-size: 18px; }
+  .floorPick button { width: 30px; height: 26px; font-size: 11px; }
 }
