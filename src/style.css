@@ -100,6 +100,10 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4p
 body.touch .pc, body:not(.touch) .touch { display: none; }
 .sheet .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 #destSeg { margin-bottom: 4px; }
+/* 出発地・行き先の画面: 見出し（✕）・切り替え・探す欄は動かさず、一覧だけを動かす */
+#destPanel .sheet { display: flex; flex-direction: column; overflow: hidden; }
+#destPanel .sheet > :not(#destList) { flex: none; }
+#destList { flex: 1 1 auto; overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
 #destFilter { width: 100%; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); margin: 2px 0 4px; }
 .seg { display: inline-flex; background: rgba(127,127,127,0.15); border-radius: 10px; padding: 3px; }
 .seg button { border: none; background: transparent; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; color: var(--sub); }

@@ -113,7 +113,6 @@ function materials() {
     esc: lam({ color: '#8b9197' }),
     rail: lam({ color: '#5b5f63' }),
     side: lam({ color: '#cfc9bd', side: THREE.DoubleSide }),
-    gate: lam({ color: '#e9eaec' }),
     mallFloor: lam({ map: tileTexture('#d6d0c6', '#c0b8aa') }),
     mallWall: lam({ map: panelTexture('#e9e3d8', '#cdc5b6', 1.2), side: THREE.DoubleSide }),
     mallCeil: lam({ color: '#f3f2ee', emissive: '#b9b6ae', side: THREE.DoubleSide }),
@@ -304,6 +303,29 @@ const bboxOf = (p) => p.reduce((b, [x, y]) => [Math.min(b[0], x), Math.min(b[1],
 const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 const inConvex = (x, y, R) => R.every((p, i) => side(p, R[(i + 1) % R.length], [x, y]) >= 0);
 
+// 改札機を置く。list: [中心 x, 中心 y, 床の高さ z, 長さ, 幅, 向き（東から反時計回り）]
+// 面ごとに材質（箱の面の順: +x・-x 端、+y 上、-y 下、+z・-z 横）
+let gateMats = null;
+export function addGateRow(scene, phys, list) {
+  if (!gateMats) {
+    const GT = gateTextures();
+    const end = new THREE.MeshLambertMaterial({ map: GT.end }), top = new THREE.MeshLambertMaterial({ map: GT.top }), side = new THREE.MeshLambertMaterial({ map: GT.side });
+    gateMats = [end, end, top, new THREE.MeshLambertMaterial({ color: '#e9eaec' }), side, side];
+  }
+  const gates = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), gateMats, list.length);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  list.forEach(([cx, cy, z, len, wid, ang], i) => {
+    q.setFromAxisAngle(up, ang);
+    m4.compose(new THREE.Vector3(...V(cx, cy, z + 0.5)), q, new THREE.Vector3(len, 1.0, wid));
+    gates.setMatrixAt(i, m4);
+    // 当たりは改札機の真ん中の 1 本の線（データの改札機の中心どうしは 0.55 m ほどで、厚みを入れると体が通れない）
+    const ux = Math.cos(ang) * len / 2, uy = Math.sin(ang) * len / 2;
+    phys.addSeg(cx - ux, cy - uy, cx + ux, cy + uy, z, z + 1.0);
+    phys.segs[phys.segs.length - 1].gate = true; // 道を探すマス目ではふさがない
+  });
+  scene.add(gates);
+}
+
 // ---------- 世界を作る ----------
 export function buildWorld(data, mallBuf, scene) {
   const M = materials();
@@ -467,23 +489,7 @@ export function buildWorld(data, mallBuf, scene) {
   }
 
   // 改札機
-  // 面ごとに材質（箱の面の順: +x・-x 端、+y 上、-y 下、+z・-z 横）
-  const gateGeo = new THREE.BoxGeometry(1, 1, 1);
-  const GT = gateTextures();
-  const gEnd = new THREE.MeshLambertMaterial({ map: GT.end }), gTop = new THREE.MeshLambertMaterial({ map: GT.top }), gSide = new THREE.MeshLambertMaterial({ map: GT.side });
-  const gates = new THREE.InstancedMesh(gateGeo, [gEnd, gEnd, gTop, M.gate, gSide, gSide], data.gates.length);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-  data.gates.forEach(([cx, cy, l, len, wid, ang], i) => {
-    const z = lz(l);
-    q.setFromAxisAngle(up, ang);
-    m4.compose(new THREE.Vector3(...V(cx, cy, z + 0.5)), q, new THREE.Vector3(len, 1.0, wid));
-    gates.setMatrixAt(i, m4);
-    // 当たりは改札機の真ん中の 1 本の線（データの改札機の中心どうしは 0.55 m ほどで、厚みを入れると体が通れない）
-    const ux = Math.cos(ang) * len / 2, uy = Math.sin(ang) * len / 2;
-    phys.addSeg(cx - ux, cy - uy, cx + ux, cy + uy, z, z + 1.0);
-    phys.segs[phys.segs.length - 1].gate = true; // 道を探すマス目ではふさがない
-  });
-  scene.add(gates);
+  addGateRow(scene, phys, data.gates.map(([cx, cy, l, len, wid, ang]) => [cx, cy, lz(l), len, wid, ang]));
 
   // 地下街（PLATEAU）
   const L = data.mall.layout;

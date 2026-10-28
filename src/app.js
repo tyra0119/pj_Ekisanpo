@@ -2,17 +2,17 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下を押して動かすと歩く、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, EYE, STEP } from './world.js?v=mvrk61fq';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrk61fq';
-import { addTrains } from './trains.js?v=mvrk61fq';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrkblib';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrkblib';
+import { addTrains } from './trains.js?v=mvrkblib';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
 const [data, mallBuf] = await Promise.all([
-  fetch('data/ikebukuro.json?v=mvrk61fq').then((r) => r.json()),
-  fetch('data/mall.bin?v=mvrk61fq').then((r) => r.arrayBuffer()),
+  fetch('data/ikebukuro.json?v=mvrkblib').then((r) => r.json()),
+  fetch('data/mall.bin?v=mvrkblib').then((r) => r.arrayBuffer()),
 ]);
 $('credit').textContent = '出典: ' + data.credits.join(' ／ ');
 $('helpCredit').textContent = '出典: ' + data.credits.join(' ／ ');
@@ -36,6 +36,34 @@ const V3 = (x, y, z) => new THREE.Vector3(x, z, -y);
 
 const { phys } = buildWorld(data, mallBuf, scene);
 const trains = addTrains(scene, data);
+
+// ---------- ほかの会社の改札（推定） ----------
+// 構内のデータが無いので、推定の点にいちばん近い地下 1 階の JR の壁（店先・駅務・壁。JR のデータでは向こう側が描かれない）の
+// 手前に、壁に向かう改札機を 5 台並べ、壁を会社の色の板にする。行き先の点は改札機の前へ
+const OP_COLOR = (n) => (/東武/.test(n) ? '#1d50a2' : /丸ノ内/.test(n) ? '#e60012' : /有楽町/.test(n) ? '#c1a470' : /副都心/.test(n) ? '#9c5e31' : /西武/.test(n) ? '#00a0e9' : '#6b5ba8');
+for (const d of data.dest.filter((x) => x.t === 'ogate')) {
+  let best = null;
+  for (const w of data.walls) {
+    if (w[4] !== -1 || !'swf'.includes(w[5])) continue;
+    const dx = w[2] - w[0], dy = w[3] - w[1], L = Math.hypot(dx, dy);
+    if (L < 4.6) continue; // 5 台並ぶ長さのある壁だけ
+    const t = Math.max(2.3, Math.min(L - 2.3, ((d.x - w[0]) * dx + (d.y - w[1]) * dy) / L));
+    const px = w[0] + (dx / L) * t, py = w[1] + (dy / L) * t, dist = Math.hypot(d.x - px, d.y - py);
+    if (!best || dist < best.dist) best = { dist, px, py, ux: dx / L, uy: dy / L };
+  }
+  if (!best || best.dist > 12) continue;
+  const { px, py, ux, uy } = best;
+  let nx = -uy, ny = ux;
+  if ((d.x - px) * nx + (d.y - py) * ny < 0) { nx = -nx; ny = -ny; } // 推定の点の側へ
+  const z = LV['-1'].z, ang = Math.atan2(ny, nx);
+  addGateRow(scene, phys, [-2, -1, 0, 1, 2].map((k) => [px + ux * k * 0.9 + nx * 0.9, py + uy * k * 0.9 + ny * 0.9, z, 1.4, 0.2, ang]));
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.6), new THREE.MeshLambertMaterial({ color: OP_COLOR(d.name), emissive: '#222' }));
+  panel.position.copy(V3(px + nx * 0.03, py + ny * 0.03, z + 1.3));
+  panel.rotation.y = Math.atan2(nx, -ny); // 板の表（+z）を推定の点の側へ（データの (nx, ny) は three.js の (nx, 0, -ny)）
+  scene.add(panel);
+  d.x = Math.round((px + nx * 2.6) * 100) / 100; d.y = Math.round((py + ny * 2.6) * 100) / 100;
+  d.est = 1;
+}
 
 // ---------- 札（看板） ----------
 // badge: 丸の中の文字（番線など）。badges: [[文字, 色], ...] で複数並べる。arrow: 文字の前に矢印（'up' | 'down'）
@@ -549,7 +577,7 @@ function updateGuide() {
   $('gHint').textContent = hint;
   if (!nav.arrived && Math.hypot(end.x - me.x, end.y - me.y) < 3 && end.l === pl) {
     nav.arrived = true;
-    toast(`到着しました（${nav.dest.name}）`);
+    toast(`到着しました（${nav.dest.name}）` + (nav.dest.est ? '。駅の中のデータが無いので、改札の位置と形は推定です' : ''));
     setTimeout(() => { if (nav.arrived) setDest(null); }, 2500);
   }
 }
