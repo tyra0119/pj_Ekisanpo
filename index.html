@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>エキさんぽ 池袋</title>
+<meta name="description" content="JR池袋駅と地下街を、人の目線で自由に歩き回れる立体の構内図">
+<link rel="stylesheet" href="src/style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<header id="top">
+  <div class="brand"><b>エキさんぽ</b><span>JR池袋駅</span></div>
+  <div id="floor" class="pill">B1</div>
+</header>
+
+<div id="leftBtns">
+  <button id="destBtn" class="btn primary" type="button">行き先</button>
+  <button id="recBtn" class="btn" type="button"><span class="recDot"></span><span id="recLabel">録画</span></button>
+</div>
+
+<div id="replayBar" hidden>
+  <span id="replayTitle">足あとを再生中</span>
+  <button id="replayPlay" type="button" aria-label="一時停止">❚❚</button>
+  <button id="replayEnd" type="button" aria-label="再生をやめる">✕</button>
+  <div class="bar"><div id="replayProg"></div></div>
+</div>
+
+<div id="sharePanel" hidden>
+  <div class="sheet">
+    <div class="head"><b>録画を共有</b><button id="shareClose" class="x" type="button" aria-label="閉じる">✕</button></div>
+    <p class="note" id="shareInfo"></p>
+    <div class="grp">再生リンク（歩いた道すじ。開くと同じ道を人の目線で再生）</div>
+    <div class="row">
+      <button id="linkShare" class="btn primary" type="button">リンクを送る</button>
+      <button id="linkCopy" class="btn" type="button">コピー</button>
+    </div>
+    <div id="videoBox">
+      <div class="grp">動画（この画面の録画）</div>
+      <video id="videoPrev" playsinline controls muted></video>
+      <div class="row">
+        <button id="videoShare" class="btn primary" type="button">動画を送る</button>
+        <a id="videoSave" class="btn" download>保存</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="guide" hidden>
+  <div id="arrow"><svg viewBox="0 0 40 40" width="44" height="44"><path d="M20 3 L34 34 L20 26 L6 34 Z" fill="currentColor"/></svg></div>
+  <div class="txt">
+    <div id="gName"></div>
+    <div id="gDist"></div>
+    <div id="gHint"></div>
+  </div>
+  <button id="gClose" class="x" type="button" aria-label="案内をやめる">✕</button>
+</div>
+
+<div id="mini">
+  <canvas id="miniCv"></canvas>
+  <div class="mapBtns">
+    <button id="mCompass" type="button" aria-label="北を上に"><svg viewBox="0 0 24 24" width="22" height="22"><g id="needle"><path d="M12 2 L16 12 L8 12 Z" fill="#d93025"/><path d="M12 22 L8 12 L16 12 Z" fill="#9aa0a6"/></g></svg></button>
+    <button id="mLocate" type="button" aria-label="現在地"><svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="4" fill="#1a73e8"/><circle cx="12" cy="12" r="8" fill="none" stroke="#1a73e8" stroke-width="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="#1a73e8" stroke-width="2"/></svg></button>
+    <div class="zoom">
+      <button id="mIn" type="button" aria-label="拡大">＋</button>
+      <button id="mOut" type="button" aria-label="縮小">−</button>
+    </div>
+  </div>
+</div>
+
+<div id="elev" hidden></div>
+<div id="toast" hidden></div>
+
+<div id="stick" hidden><div class="knob"></div></div>
+
+<div id="destPanel" hidden>
+  <div class="sheet">
+    <div class="head"><b>どこへ行く？</b><button id="destClose" class="x" type="button" aria-label="閉じる">✕</button></div>
+    <div id="destList"></div>
+  </div>
+</div>
+
+<div id="help">
+  <div class="sheet">
+    <b>エキさんぽ</b>
+    <p>JR池袋駅と地下街を、人の目線で歩き回れます。</p>
+    <ul>
+      <li class="pc"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>・矢印キーで歩く、<kbd>Shift</kbd> で速く</li>
+      <li class="pc">画面をドラッグで見回す</li>
+      <li class="touch">左下を押したまま動かすと歩く</li>
+      <li class="touch">右側をなぞると見回す</li>
+      <li>「行き先」で改札・ホーム・トイレを選ぶと、床の矢印と画面上の矢印で案内</li>
+      <li>壁や改札機にはぶつかります。改札機のあいだを通り抜けてください</li>
+    </ul>
+    <button id="helpOk" class="btn primary" type="button">歩きはじめる</button>
+  </div>
+</div>
+
+<footer id="credit"></footer>
+<div id="loading">読み込み中…</div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
