@@ -2,15 +2,15 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrou76x';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrou76x';
-import { addTrains } from './trains.js?v=mvrou76x';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrpggyk';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrpggyk';
+import { addTrains } from './trains.js?v=mvrpggyk';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvrou76x'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvrpggyk'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -135,6 +135,10 @@ const addSign = (s, x, y, z) => {
   s.position.copy(V3(x, y, z));
   scene.add(s);
 };
+// 駅の設備（構内地図の Facility）の札の記号と色
+const FAC_LABEL = { ticket: 'きっぷ売り場', fare: '精算所', locker: 'コインロッカー', atm: 'ATM', kiosk: '売店', info: '案内所', nursing: '授乳室', exchange: '両替所' };
+const FAC_WORDS = { ticket: '券売機 みどりの窓口 切符 きっぷ', fare: '精算機 のりこし', locker: 'ロッカー 荷物', atm: '銀行 お金', kiosk: 'キオスク コンビニ', info: 'インフォメーション 案内', nursing: '赤ちゃん おむつ ベビー', exchange: '外貨 お金' }; // 名前で探すときの言いかえ
+const FAC_ICON = { ticket: ['券', '#0b8f4d'], fare: ['精', '#0b8f4d'], locker: ['ロ', '#6b737b'], atm: ['¥', '#c46a2b'], kiosk: ['売', '#d0344a'], info: ['i', '#1f6fd1'], nursing: ['授', '#d0607a'], exchange: ['両', '#c46a2b'] };
 for (const d of data.dest) {
   const z = LV[d.level].z;
   if (d.t === 'gate') for (const [x, y] of d.pts) { const s = sign(d.name, { bg: '#f5c400' }); s.userData.key = d.name; addSign(s, x, y, z + 2.45); }
@@ -146,6 +150,7 @@ for (const d of data.dest) {
   }
   // 地下街: 出口は黄色、ほかの会社の改札は薄紫、お店・地下街は白い小さな札（通路から遠いものは置かない）
   if (d.t === 'exit' || d.t === 'ogate') { const s = sign(d.name, { bg: d.t === 'exit' ? '#f5c400' : '#e4d8f3' }); s.userData.key = d.name; addSign(s, d.x, d.y, z + 2.25); }
+  if (d.t === 'fac') { const [ch, col] = FAC_ICON[d.kind]; const s = sign(FAC_LABEL[d.kind], { bg: '#1c3f74', fg: '#fff', badge: ch, badgeColor: col, h: 0.42 }); s.userData.key = 'fac' + d.kind; addSign(s, d.sign[0], d.sign[1], z + 2.3); }
   if (d.t === 'spot' && !d.near) { const s = sign(d.name, { bg: '#fff', h: 0.38 }); s.userData.key = d.name; addSign(s, d.x, d.y, z + 2.15); }
   // 階段の上の端の近くには置かない（上ってくる途中で目の前に大きく出る）
   if (d.t === 'plat') for (const [x, y] of d.signs) { if (data.ramps.some((r) => r.lb === d.level && Math.hypot(r.b[0] - x, r.b[1] - y) < 6)) continue; const s = sign(`${d.name.replace(/^\d+番線 /, '')} ${d.dir || ''}`.trim(), { bg: '#fff', badge: String(d.code), badgeColor: d.color }); s.userData.key = d.name; addSign(s, x, y, z + 2.7); }
@@ -329,7 +334,7 @@ function findRoute(px, py, pl, d) {
   }
   // トイレは 扉の外 → 扉 → 中 の順にたどる（扉が分からないものはトイレの点へ）
   if (d.t === 'toilet') for (const [x, y] of d.door ? [d.out, d.door, d.in] : [[d.x, d.y]]) pts.push(P(x, y, d.level));
-  if (d.t === 'elev') pts.push(P(d.x, d.y, d.level)); // 箱の中まで
+  if (d.t === 'elev' || d.t === 'fac') pts.push(P(d.x, d.y, d.level)); // 箱の中まで・設備の前の通路まで
   return pts;
 }
 
@@ -755,7 +760,7 @@ function openDest(mode = destMode) {
   const q = $('destFilter').value.trim();
   const add = (title, items) => {
     items = items.filter(([d]) => !d.unreach); // マス目でつながらない地下街の場所は出さない
-    if (q) items = items.filter(([d]) => d.name.includes(q) || (d.kind || '').includes(q) || (d.dir || '').includes(q));
+    if (q) items = items.filter(([d]) => d.name.includes(q) || (d.kind || '').includes(q) || (d.dir || '').includes(q) || (d.t === 'fac' && FAC_WORDS[d.kind].includes(q)));
     if (!items.length) return;
     const h = document.createElement('div'); h.className = 'grp'; h.textContent = title; list.append(h);
     for (const [d, html, tag] of items) {
@@ -786,6 +791,11 @@ function openDest(mode = destMode) {
   const elevs = data.dest.filter((d) => d.t === 'elev' && d.level === pl).sort((a, b) => dist(a) - dist(b));
   if (elevs.length) add(`エレベーター（${LV[pl].name}・近い順）`, elevs.map((d) => [d, `<span class="dot" style="background:#6b737b">EV</span>${d.name.replace(/^エレベーター（(.*)）$/, '$1')}`, `約${Math.round(dist(d))} m`]));
   add('トイレ（近い順）', toilets.map((d) => [d, `<span class="dot" style="background:${d.kind === 'M' ? '#1f6fd1' : d.kind === 'F' ? '#d0344a' : '#2f8f5b'}">${d.kind === 'M' ? '♂' : d.kind === 'F' ? '♀' : '♿'}</span>${d.name}`, `${LV[d.level].name}・約${Math.round(dist(d))} m`]));
+  // 駅の設備（種類ごとに近い順）
+  for (const k of Object.keys(FAC_LABEL)) {
+    const fs = data.dest.filter((d) => d.t === 'fac' && d.kind === k).sort((a, b) => dist(a) - dist(b));
+    add(`${FAC_LABEL[k]}（近い順）`, fs.map((d) => [d, `<span class="dot" style="background:${FAC_ICON[k][1]}">${FAC_ICON[k][0]}</span>${d.name}`, `${LV[d.level].name}・約${Math.round(dist(d))} m`]));
+  }
   // 地下街（Machiawase の OpenStreetMap の場所）
   const near = (d) => (d.near ? '<br><small>近くの通路まで</small>' : '');
   add('ほかの会社の改札', data.dest.filter((d) => d.t === 'ogate').map((d) => [d, `<span class="dot" style="background:#7a5ea8">改</span><span>${d.name}${near(d)}</span>`, `約${Math.round(dist(d))} m`]));
@@ -943,11 +953,11 @@ function drawMini() {
     if (String(d.level) !== pl || d.t === 'plat' || d.t === 'elev' || d.t === 'spot') continue;
     const [x, y] = W2S(d.x, d.y);
     if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-    const t = d.t === 'gate' || d.t === 'exit' || d.t === 'ogate' ? d.name : d.kind === 'M' ? '♂' : d.kind === 'F' ? '♀' : '♿';
-    mg.fillStyle = d.t === 'gate' || d.t === 'exit' ? '#f5c400' : d.t === 'ogate' ? '#e4d8f3' : '#1c3f74';
+    const t = d.t === 'gate' || d.t === 'exit' || d.t === 'ogate' ? d.name : d.t === 'fac' ? FAC_ICON[d.kind][0] : d.kind === 'M' ? '♂' : d.kind === 'F' ? '♀' : '♿';
+    mg.fillStyle = d.t === 'gate' || d.t === 'exit' ? '#f5c400' : d.t === 'ogate' ? '#e4d8f3' : d.t === 'fac' ? FAC_ICON[d.kind][1] : '#1c3f74';
     const w = mg.measureText(t).width + 6;
     mg.fillRect(x - w / 2, y - 7, w, 14);
-    mg.fillStyle = d.t === 'toilet' ? '#fff' : '#111';
+    mg.fillStyle = d.t === 'toilet' || d.t === 'fac' ? '#fff' : '#111';
     mg.fillText(t, x, y);
   }
   if (nav.dest) {
@@ -1255,7 +1265,8 @@ if (!replaying) {
   const from = find(q.get('from')), to = find(q.get('to'));
   if (from) startAt(from, false);
   else { // はじめの位置も、出発地と同じ降り方で（改札口の点が通路の外にある駅で、動けない所に立っていた。渋谷の西口）
-    const g = data.dest.find((d) => d.name === '中央改札1') || data.dest.find((d) => d.t === 'gate' && /改札$/.test(d.name)) || data.dest.find((d) => d.t === 'gate');
+    // 改札は駅ごとに決めた広いコンコースに面したもの（data.start。東京で京葉地下丸の内口改札の脇の、エスカレーターの開口に近い狭い所に立っていた）
+    const g = data.dest.find((d) => d.t === 'gate' && d.name === data.start) || data.dest.find((d) => d.t === 'gate' && /改札$/.test(d.name)) || data.dest.find((d) => d.t === 'gate');
     if (g) { startAt(g, false); startName = null; }
   }
   if (to) setDest(to);

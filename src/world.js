@@ -362,8 +362,13 @@ export function buildWorld(data, mallBuf, scene) {
       return [[p0[0] - nx, p0[1] - ny], [p1[0] - nx, p1[1] - ny], [p1[0] + nx, p1[1] + ny], [p0[0] + nx, p0[1] + ny]];
     };
     // 上の端で上の階の床を残す長さ: 坂の面が 0.3 m 下がるまで（最大 0.6 m。短くて急な階段では、残した床と坂の面の段差が大きく下りられなかった）
-    const keep = Math.min(0.6, (0.3 * len) / Math.max(0.01, r.b[2] - r.a[2]));
-    return { la: r.la, lb: r.lb, low: rect(-0.3, len + 0.4, r.w / 2 + 0.3), high: rect(-0.3, len - keep, r.w / 2 + 0.05) };
+    const rise = Math.max(0.01, r.b[2] - r.a[2]);
+    const keep = Math.min(0.6, (0.3 * len) / rise);
+    // 抜くのは、坂の面 + 2.1 m（頭 1.75 m と余裕）が天井・上の階の床に届く所から上の端まで（その 0.4 m 手前から）。
+    // 横は坂の幅 + 0.1 m。前は坂の全体と横 0.3 m を抜いていて、階段の下から見上げると大きな穴に見えた（利用者「切り取る範囲が広すぎる」）
+    const from = (top) => Math.max(-0.3, (len * (top - 2.1 - r.a[2])) / rise - 0.4);
+    const ceilTop = lz(r.la) + data.levels[r.la].ceil;
+    return { la: r.la, lb: r.lb, low: rect(from(ceilTop), len + 0.3, r.w / 2 + 0.1), high: rect(from(r.b[2]), len - keep, r.w / 2 + 0.05) };
   });
   const cut = (tris, rects) => {
     let pieces = tris;
