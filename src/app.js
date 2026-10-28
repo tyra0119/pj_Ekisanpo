@@ -367,6 +367,19 @@ function getGrid() {
   for (const d of data.dest) if (!d.nodes && snapCell(d.x, d.y) < 0) d.unreach = 1;
   return grid;
 }
+// 出発地に降りるマス: いちばん大きくつながった部分で、まわり 1 m（±2 マス）がすべて歩けるいちばん近いマス（12 m まで）。
+// 出口の階段の下のような狭いすみに降りて、目の前が壁や階段にならないように
+function openCell(x, y) {
+  const { C, x0, y0, W, H, ok, comp, main } = grid;
+  const ci = Math.floor((x - x0) / C), cj = Math.floor((y - y0) / C);
+  const open = (i, j) => { for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= W || jj >= H || !ok[jj * W + ii]) return false; } return true; };
+  for (let r = 0; r <= 24; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+    if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+    const i = ci + di, j = cj + dj;
+    if (i >= 0 && j >= 0 && i < W && j < H && comp[j * W + i] === main && open(i, j)) return j * W + i;
+  }
+  return snapCell(x, y);
+}
 // いちばん大きくつながった部分の、いちばん近いマス（12 m まで。壁ぎわでないマスを先に）
 function snapCell(x, y) {
   const { C, x0, y0, W, H, ok, near, comp, main } = grid;
@@ -547,9 +560,31 @@ const startPoint = (d) => (d.t === 'toilet' && d.out ? d.out : [d.x, d.y]);
 function startAt(d, animate = true) {
   const [x, y] = startPoint(d);
   startName = d.name;
-  if (animate) { jumpTo(x, y, d.level); return; }
-  const p = landingAt(x, y, d.level);
-  if (p) { [me.x, me.y, me.z] = p; me.eye = me.z + EYE; }
+  if (animate) { jumpTo(x, y, d.level, true); return; }
+  const p = landingAt(x, y, d.level, true);
+  if (p) { [me.x, me.y, me.z] = p; me.eye = me.z + EYE; me.yaw = openYaw(...p); }
+}
+// いちばん開けている向き: 32 方向で、いちばん遠くまで見通せる向き（地下 1 階はマス目の壁ぎわでないマス、ほかの階は当たり判定で歩いてみる）
+function openYaw(x, y, z) {
+  let best = [0, -1];
+  const B1 = levelOf(z) === -1 && grid;
+  for (let k = 0; k < 32; k++) {
+    const a = (k / 32) * Math.PI * 2, sx = Math.sin(a) * 0.25, sy = Math.cos(a) * 0.25;
+    let px = x, py = y, pz = z, d = 0;
+    for (; d < 80; d++) {
+      if (B1) {
+        const c = Math.floor((py + sy - grid.y0) / grid.C) * grid.W + Math.floor((px + sx - grid.x0) / grid.C);
+        if (!grid.ok[c] || grid.near[c]) break;
+        px += sx; py += sy;
+      } else {
+        const [cx, cy] = phys.collide(px + sx, py + sy, pz), gz = phys.groundAt(cx, cy, pz);
+        if (gz == null || Math.hypot(cx - px, cy - py) < 0.12) break;
+        px = cx; py = cy; pz = gz;
+      }
+    }
+    if (d > best[1]) best = [a, d];
+  }
+  return best[0];
 }
 function openDest(mode = destMode) {
   destMode = mode;
@@ -846,8 +881,15 @@ function watchLevel() { // 歩いて階が変わったら、地図も自分の�
 
 // 地図でタップした所へ移動（ストリートビューのように）。歩けない所なら 3 m 以内の歩ける所へ寄せる
 let jump = null;
-function landingAt(x, y, level) {
+function landingAt(x, y, level, open = false) {
   const z0 = LV[level].z;
+  // 地下 1 階は、マス目のいちばん大きくつながった部分のいちばん近い所へ（囲まれた小さな区画に降りて出られなくならないように）。
+  // 出発地（open）は開けたマスへ
+  if (level === -1) {
+    getGrid();
+    const c = open ? openCell(x, y) : snapCell(x, y);
+    if (c >= 0) { x = grid.x0 + ((c % grid.W) + 0.5) * grid.C; y = grid.y0 + (((c / grid.W) | 0) + 0.5) * grid.C; }
+  }
   const pick = (px, py) => {
     const zs = phys.surfacesAt(px, py).filter((z) => z > z0 - 1.5 && z < z0 + (level === -1 ? 2.5 : 0.6));
     if (!zs.length) return null;
@@ -862,13 +904,14 @@ function landingAt(x, y, level) {
   }
   return null;
 }
-function jumpTo(x, y, level) {
-  const to = landingAt(x, y, level);
+function jumpTo(x, y, level, faceOpen = false) {
+  const to = landingAt(x, y, level, faceOpen);
   if (!to) { toast('そこへは行けません'); return; }
   pauseReplay('止めました（ここから歩けます）');
   jump = { from: [me.x, me.y, me.z], to, t: 0, dur: Math.min(1.2, 0.35 + Math.hypot(to[0] - me.x, to[1] - me.y) / 120) };
-  // 進む向きを向く（真上をタップしたときはそのまま）
-  if (Math.hypot(to[0] - me.x, to[1] - me.y) > 1) jump.yaw = Math.atan2(to[0] - me.x, to[1] - me.y);
+  // 出発地は開けている向き、地図のタップは進む向きを向く（真上をタップしたときはそのまま）
+  if (faceOpen) jump.yaw = openYaw(...to);
+  else if (Math.hypot(to[0] - me.x, to[1] - me.y) > 1) jump.yaw = Math.atan2(to[0] - me.x, to[1] - me.y);
   jump.yaw0 = me.yaw;
 }
 function updateJump(dt) {
@@ -1104,4 +1147,4 @@ $('loading').hidden = true;
 requestAnimationFrame(frame);
 
 // 確かめ用（コンソールから位置を見る・動かす）
-window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath };
+window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt };
