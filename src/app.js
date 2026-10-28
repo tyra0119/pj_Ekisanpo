@@ -2,17 +2,17 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下を押して動かすと歩く、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrknmto';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrknmto';
-import { addTrains } from './trains.js?v=mvrknmto';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrlujup';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrlujup';
+import { addTrains } from './trains.js?v=mvrlujup';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
 const [data, mallBuf] = await Promise.all([
-  fetch('data/ikebukuro.json?v=mvrknmto').then((r) => r.json()),
-  fetch('data/mall.bin?v=mvrknmto').then((r) => r.arrayBuffer()),
+  fetch('data/ikebukuro.json?v=mvrlujup').then((r) => r.json()),
+  fetch('data/mall.bin?v=mvrlujup').then((r) => r.arrayBuffer()),
 ]);
 $('credit').textContent = '出典: ' + data.credits.join(' ／ ');
 $('helpCredit').textContent = '出典: ' + data.credits.join(' ／ ');

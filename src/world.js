@@ -69,6 +69,19 @@ function panelTexture(color, joint, w = 1.2) {
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 }
+// 駅務などの扉（灰色の扉、取っ手と小窓）。横 1 m × 縦 2.1 m で 1 枚
+function doorTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 134;
+  const g = c.getContext('2d');
+  g.fillStyle = '#9aa1a8'; g.fillRect(0, 0, 64, 134);
+  g.strokeStyle = '#6f767d'; g.lineWidth = 3; g.strokeRect(4, 4, 56, 128);
+  g.fillStyle = '#c9d6df'; g.fillRect(22, 18, 20, 26); // 小窓
+  g.fillStyle = '#3e4449'; g.fillRect(48, 68, 6, 16);  // 取っ手
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 // 改札機の面: 端（進む向き）は緑の矢印、上面は黒い板に青い IC の読み取り部、横は銀に黒い帯
 function gateTextures() {
   const mk = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
@@ -105,6 +118,9 @@ function materials() {
     wall: lam({ map: wallTexture('#f1ede4', '#c9d3d8', '#b3bec4'), side: THREE.DoubleSide }),
     staff: lam({ map: panelTexture('#d2d5d8', '#b2b6ba', 1.0), side: THREE.DoubleSide }),
     elevWall: lam({ map: panelTexture('#b7bec5', '#8e969e', 0.9), emissive: '#30363c', side: THREE.DoubleSide }), // ステンレスのエレベーター
+    door: lam({ map: doorTexture(), side: THREE.DoubleSide }),                 // 駅務などの入れない扉
+    shopDoor: new THREE.MeshBasicMaterial({ color: '#fff4dc', side: THREE.DoubleSide }), // 店のガラスの扉（中の明かり）
+    shopDoorTop: new THREE.MeshBasicMaterial({ color: '#c0392b', side: THREE.DoubleSide }),
     shop: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     glass: new THREE.MeshLambertMaterial({ color: '#9fc6d6', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
     frame: lam({ color: '#7d858c' }),
@@ -118,6 +134,7 @@ function materials() {
     mallCeil: lam({ color: '#f3f2ee', emissive: '#b9b6ae', side: THREE.DoubleSide }),
     mallInst: lam({ color: '#a9a49b', side: THREE.DoubleSide }),
     mallDoor: new THREE.MeshLambertMaterial({ color: '#b5d3df', transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
+    mallClosure: new THREE.MeshBasicMaterial({ map: panelTexture('#f4ead6', '#cdbb98', 1.8), side: THREE.DoubleSide }), // データの範囲外への口（明かりの入ったガラスのつもり）
     track: lam({ color: '#8a7f70' }),
     apron: lam({ map: tileTexture('#b9b5ad', '#a29d94', 128, 2), side: THREE.DoubleSide }), // 向きが辺ごとに違うので両面
   };
@@ -388,8 +405,8 @@ export function buildWorld(data, mallBuf, scene) {
   const uvs = {};
   const quad = (key, ax, ay, bx, by, z0, z1) => {
     push(key, V(ax, ay, z0), V(bx, by, z0), V(bx, by, z1), V(ax, ay, z0), V(bx, by, z1), V(ax, ay, z1));
-    if (key !== 'wall' && key !== 'staff' && key !== 'elevWall') return;
-    const L = Math.hypot(bx - ax, by - ay), v = key === 'wall' ? (z1 - z0) / 3 : z1 - z0;
+    if (key !== 'wall' && key !== 'staff' && key !== 'elevWall' && key !== 'door') return;
+    const L = Math.hypot(bx - ax, by - ay), v = key === 'wall' ? (z1 - z0) / 3 : key === 'door' ? (z1 - z0) / 2.1 : z1 - z0;
     (uvs[key] = uvs[key] || []).push(0, 0, L, 0, L, v, 0, 0, L, v, 0, v);
   };
   const SHOP = ['#ffe9c2', '#fff4dc', '#ffdcb8', '#e8f3ff', '#fff0f0', '#f2ffe8'];
@@ -399,6 +416,15 @@ export function buildWorld(data, mallBuf, scene) {
     const z = lz(l), ceil = data.levels[l].ceil;
     if (k === 'w' || k === 'f' || k === 'e') {
       quad({ w: 'wall', f: 'staff', e: 'elevWall' }[k], ax, ay, bx, by, z, z + ceil);
+      phys.addSeg(ax, ay, bx, by, z, z + ceil);
+    } else if (k === 'sd' || k === 'fd') {
+      // 入れない扉（店はガラスの扉、駅務などは灰色の扉）。扉は 2.1 m まで、上は壁
+      quad(k === 'sd' ? 'shopDoor' : 'door', ax, ay, bx, by, z, z + 2.1);
+      quad(k === 'sd' ? 'shopDoorTop' : 'staff', ax, ay, bx, by, z + 2.1, z + ceil);
+      // 扉の枠（両側の縦の帯）
+      const len = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / len * 0.06, uy = (by - ay) / len * 0.06;
+      quad('frame', ax, ay, ax + ux, ay + uy, z, z + 2.15);
+      quad('frame', bx - ux, by - uy, bx, by, z, z + 2.15);
       phys.addSeg(ax, ay, bx, by, z, z + ceil);
     } else if (k === 's') {
       // 店先: 下は明るいガラス、上は色の帯
@@ -501,8 +527,10 @@ export function buildWorld(data, mallBuf, scene) {
   const mallMeshes = [
     meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall, { uv: 'side' }), meshOf(toThree(get('ceil')), M.mallCeil),
     meshOf(toThree(get('inst')), M.mallInst), meshOf(toThree(get('door')), M.mallDoor),
+    // 閉じる面（向こうがデータの範囲外。となりの建物・デパートの地下などへの口）は明るいガラスの面に
+    meshOf(toThree(L.closure ? get('closure') : new Float32Array(0)), M.mallClosure, { uv: 'side' }),
   ];
-  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor'].forEach((n, i) => { mallMeshes[i].name = n; });
+  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor', 'mallClosure'].forEach((n, i) => { mallMeshes[i].name = n; });
   scene.add(...mallMeshes);
 
   // 天井の蛍光灯: 駅の向き（階段の向きの平均）にそろえ、3.6 m × 2.4 m ごとに細長い光る板を並べる
