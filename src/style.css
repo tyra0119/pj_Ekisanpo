@@ -16,6 +16,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); f
 button { font: inherit; color: inherit; cursor: pointer; }
 
 #top { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 12px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+#top > * { pointer-events: auto; }
+button.brand { border: none; font: inherit; color: inherit; cursor: pointer; }
+.brand .chev { font-size: 11px; color: var(--sub); }
 .brand { background: var(--panel); border-radius: 10px; padding: 6px 12px; box-shadow: var(--shadow); display: flex; gap: 8px; align-items: baseline; }
 .brand b { color: var(--accent); font-size: 17px; }
 .brand span { font-size: 13px; color: var(--sub); }
@@ -60,7 +63,7 @@ a.btn { text-decoration: none; display: inline-block; }
 .mapBtns .zoom { display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
 .mapBtns .zoom button { box-shadow: none; border-radius: 0; }
 .mapBtns .zoom button + button { border-top: 1px solid #e3e3e3; }
-.floorPick { position: absolute; left: 6px; top: 6px; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+.floorPick { position: absolute; left: 6px; top: 6px; display: flex; flex-direction: column; border-radius: 8px; overflow-y: auto; max-height: calc(100% - 12px); scrollbar-width: none; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
 .floorPick button { width: 34px; height: 28px; border: none; background: #fff; color: #444; font-size: 12px; font-weight: 700; padding: 0; position: relative; }
 .floorPick button + button { border-top: 1px solid #e3e3e3; }
 .floorPick button.on { background: #1a73e8; color: #fff; }
@@ -92,6 +95,8 @@ body.touch #mini { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 14px); 
 body.riding #view { filter: brightness(0.55); transition: filter 0.4s; }
 #view { transition: filter 0.4s; }
 
+#stationPanel { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: grid; place-items: end center; z-index: 10; }
+#stationPanel[hidden] { display: none; }
 #destPanel, #help { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: grid; place-items: end center; z-index: 10; }
 #destPanel[hidden], #help[hidden] { display: none; }
 .sheet { background: var(--panel); width: min(100vw, 480px); max-height: 75vh; overflow: auto; border-radius: 16px 16px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: var(--shadow); }

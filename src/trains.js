@@ -5,17 +5,18 @@ import * as THREE from 'three';
 
 const V3 = (x, y, z) => new THREE.Vector3(x, z, -y);
 const CAR = 20;             // 1 両の長さ（m）
-const CARS = { JY: 11, JA: 10, JS: 15 };
-const BAND = { JY: ['#80c241', null], JA: ['#00ac9a', null], JS: ['#f68b1e', '#2e9f4a'] }; // 帯の色（湘南新宿ラインは橙と緑）
+// 両数（ホームに入る数まで）と帯の色。表に無い路線は 10 両、帯は路線の色 1 本
+const CARS = { JY: 11, JA: 10, JS: 15, JK: 10, JC: 10, JB: 10, JE: 10, JT: 15, JU: 15, JO: 15, JJ: 15 };
+const BAND = { JS: ['#f68b1e', '#2e9f4a'], JT: ['#f68b1e', '#2e9f4a'], JU: ['#f68b1e', '#2e9f4a'], JO: ['#0067c0', '#f0c419'] }; // 2 色の帯（橙と緑、紺とクリーム）
 
-function carTexture(route) {
+function carTexture(route, color) {
   const c = document.createElement('canvas');
   c.width = 1024; c.height = 256;
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, 256);
   grad.addColorStop(0, '#eef1f3'); grad.addColorStop(0.5, '#c9ced2'); grad.addColorStop(1, '#a9afb4');
   g.fillStyle = grad; g.fillRect(0, 0, 1024, 256);
-  const [b1, b2] = BAND[route] || ['#888', null];
+  const [b1, b2] = BAND[route] || [color || '#888', null];
   // 窓の上の帯と、窓の下の帯
   g.fillStyle = b1; g.fillRect(0, 40, 1024, 14);
   g.fillStyle = b2 || b1; g.fillRect(0, 172, 1024, b2 ? 10 : 16);
@@ -74,14 +75,14 @@ export function addTrains(scene, data) {
     const platLen = a1 - a0;
     const cars = Math.max(4, Math.min(CARS[d.route] || 10, Math.floor(platLen / CAR)));
     const cx = mx + ux * (a0 + a1) / 2, cy = my + uy * (a0 + a1) / 2;
-    tracks.push({ d, cx, cy, ux, uy, ang, cars, z: LV[d.level].z - 0.9, dir: d.code % 2 ? 1 : -1 });
+    tracks.push({ d, cx, cy, ux, uy, ang, cars, z: LV[d.level].z - 0.9, dir: (d.ord ?? 0) % 2 ? 1 : -1 });
   }
 
   const geo = new THREE.BoxGeometry(CAR - 0.6, 3.55, 2.9);
   const mats = {};
   const trains = tracks.map((tr, k) => {
     const mat = mats[tr.d.route] || (mats[tr.d.route] = [
-      new THREE.MeshLambertMaterial({ map: carTexture(tr.d.route) }), // 横（+x の面は使わないが同じ）
+      new THREE.MeshLambertMaterial({ map: carTexture(tr.d.route, tr.d.color) }), // 横（+x の面は使わないが同じ）
       new THREE.MeshLambertMaterial({ color: '#d4d8db' }),
     ]);
     const group = new THREE.Group();

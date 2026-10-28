@@ -1,4 +1,4 @@
-// データ（ikebukuro.json と mall.bin）から、立体の世界（three.js）と当たり判定を作る。
+// データ（<駅>.json と <駅>-mall.bin）から、立体の世界（three.js）と当たり判定を作る。
 // 座標: データは x 東・y 北・z 上（m）。three.js は y が上なので (x, z, -y) に置く。
 
 import * as THREE from 'three';
@@ -238,10 +238,11 @@ export class Physics {
     return out;
   }
   // 胸の高さで当たる線の一覧（JR の壁・手すり・改札機と、地下街の壁を切ったもの）
-  segsNear(x, y, h, r) {
+  segsNear(x, y, h, r, head = false) {
     const out = [];
     for (const i of this.sg.near(x, y, r)) {
       const s = this.segs[i];
+      if (head && s.rail) continue;
       const dx = s.bx - s.ax, dy = s.by - s.ay, L = dx * dx + dy * dy;
       const t = L ? Math.max(0, Math.min(1, ((x - s.ax) * dx + (y - s.ay) * dy) / L)) : 0;
       if (h < s.z0a + (s.z0b - s.z0a) * t || h > s.z1a + (s.z1b - s.z1a) * t) continue;
@@ -265,7 +266,7 @@ export class Physics {
   // 体（円）を線から押し出す
   collide(x, y, feet) {
     // すね・胸・頭の高さ（頭は階段の下をくぐれるかどうか）
-    const segs = [...this.segsNear(x, y, feet + 0.9, 1.5), ...this.segsNear(x, y, feet + 0.3, 1.5), ...this.segsNear(x, y, feet + 1.75, 1.5)];
+    const segs = [...this.segsNear(x, y, feet + 0.9, 1.5), ...this.segsNear(x, y, feet + 0.3, 1.5), ...this.segsNear(x, y, feet + 1.75, 1.5, true)];
     for (let it = 0; it < 4; it++) {
       let moved = false;
       for (const [ax, ay, bx, by] of segs) {
@@ -360,7 +361,9 @@ export function buildWorld(data, mallBuf, scene) {
       const nx = -dy * hw, ny = dx * hw, p0 = [ax + dx * s0, ay + dy * s0], p1 = [ax + dx * s1, ay + dy * s1];
       return [[p0[0] - nx, p0[1] - ny], [p1[0] - nx, p1[1] - ny], [p1[0] + nx, p1[1] + ny], [p0[0] + nx, p0[1] + ny]];
     };
-    return { la: r.la, lb: r.lb, low: rect(-0.3, len + 0.4, r.w / 2 + 0.3), high: rect(-0.3, len - 0.6, r.w / 2 + 0.05) };
+    // 上の端で上の階の床を残す長さ: 坂の面が 0.3 m 下がるまで（最大 0.6 m。短くて急な階段では、残した床と坂の面の段差が大きく下りられなかった）
+    const keep = Math.min(0.6, (0.3 * len) / Math.max(0.01, r.b[2] - r.a[2]));
+    return { la: r.la, lb: r.lb, low: rect(-0.3, len + 0.4, r.w / 2 + 0.3), high: rect(-0.3, len - keep, r.w / 2 + 0.05) };
   });
   const cut = (tris, rects) => {
     let pieces = tris;
@@ -445,6 +448,7 @@ export function buildWorld(data, mallBuf, scene) {
       quad('frame', ax - nx, ay - ny, bx - nx, by - ny, z + h - 0.06, z + h);
       quad('frame', ax + nx, ay + ny, bx + nx, by + ny, z + h - 0.06, z + h);
       phys.addSeg(ax, ay, bx, by, z, z + h);
+      phys.segs[phys.segs.length - 1].rail = true; // 手すり・ホームドアは頭の高さの判定に使わない（下の階から階段を上る人の頭に、上の階の手すりが当たった）
       if (k === 'p') { // ホームドアの外の線路（ホームのふちから 1.0 m と 2.07 m）
         const ox = uy, oy = -ux, rz = z - 1.05;
         for (const off of [1.0, 2.07]) {
@@ -495,6 +499,8 @@ export function buildWorld(data, mallBuf, scene) {
     const zAt = (t) => az + rise * t, at = (t) => [ax + (bx - ax) * t, ay + (by - ay) * t];
     const sideMat = r.t === 's' ? 'side' : 'glass';
     const band = (q0, q1, b0, b1, u0, u1) => push(sideMat, V(q0[0], q0[1], b0), V(q1[0], q1[1], b1), V(q1[0], q1[1], u1), V(q0[0], q0[1], b0), V(q1[0], q1[1], u1), V(q0[0], q0[1], u0));
+    // 足元がほかの坂と重なる坂（データで向きがねじれている所など）は、横の壁も板の下面も付けない（重なった壁が通り道をふさぐ）
+    if (r.ov) continue;
     for (const s of [1, -1]) {
       const p0 = P([ax, ay], s, 0), pk = P(at(tk), s, 0), p1 = P([bx, by], s, 0);
       band(p0, pk, az, az, az + 1, zAt(tk) + 1);
@@ -517,9 +523,9 @@ export function buildWorld(data, mallBuf, scene) {
   // 改札機
   addGateRow(scene, phys, data.gates.map(([cx, cy, l, len, wid, ang]) => [cx, cy, lz(l), len, wid, ang]));
 
-  // 地下街（PLATEAU）
-  const L = data.mall.layout;
-  const get = (k) => new Float32Array(mallBuf, L[k][0], L[k][1]); // [バイトの位置, 数の個数]
+  // 地下街（PLATEAU）。地下街の無い駅は、どれも空
+  const L = data.mall ? data.mall.layout : {};
+  const get = (k) => (L[k] ? new Float32Array(mallBuf, L[k][0], L[k][1]) : new Float32Array(0)); // [バイトの位置, 数の個数]
   const toThree = (src) => { const o = new Float32Array(src.length); for (let i = 0; i < src.length; i += 3) { o[i] = src[i]; o[i + 1] = src[i + 2]; o[i + 2] = -src[i + 1]; } return o; };
   const mf = get('floor');
   for (let i = 0; i < mf.length; i += 9) phys.addFloor([mf[i], mf[i + 1], mf[i + 2]], [mf[i + 3], mf[i + 4], mf[i + 5]], [mf[i + 6], mf[i + 7], mf[i + 8]]);
@@ -528,7 +534,7 @@ export function buildWorld(data, mallBuf, scene) {
     meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall, { uv: 'side' }), meshOf(toThree(get('ceil')), M.mallCeil),
     meshOf(toThree(get('inst')), M.mallInst), meshOf(toThree(get('door')), M.mallDoor),
     // 閉じる面（向こうがデータの範囲外。となりの建物・デパートの地下などへの口）は明るいガラスの面に
-    meshOf(toThree(L.closure ? get('closure') : new Float32Array(0)), M.mallClosure, { uv: 'side' }),
+    meshOf(toThree(get('closure')), M.mallClosure, { uv: 'side' }),
   ];
   ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor', 'mallClosure'].forEach((n, i) => { mallMeshes[i].name = n; });
   scene.add(...mallMeshes);

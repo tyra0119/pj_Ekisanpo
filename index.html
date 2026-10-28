@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>エキさんぽ 池袋</title>
-<meta name="description" content="JR池袋駅と地下街を、人の目線で自由に歩き回れる立体の構内図">
-<link rel="stylesheet" href="src/style.css?v=mvrlujup">
+<title>エキさんぽ</title>
+<meta name="description" content="JR の駅（池袋・東京・新宿・渋谷・品川・高輪ゲートウェイ）と地下街を、人の目線で自由に歩き回れる立体の構内図">
+<link rel="stylesheet" href="src/style.css?v=mvrn4r2x">
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
@@ -14,7 +14,7 @@
 <canvas id="view"></canvas>
 
 <header id="top">
-  <div class="brand"><b>エキさんぽ</b><span>JR池袋駅</span></div>
+  <button id="stationBtn" class="brand" type="button" aria-label="駅を切り替える"><b>エキさんぽ</b><span id="stationName">駅</span><span class="chev">▾</span></button>
   <div id="floor" class="pill">B1</div>
   <div id="fare" class="pill fare out">改札外</div>
 </header>
@@ -88,6 +88,13 @@
   <button type="button" data-k="ArrowDown" class="d" aria-label="後ろへ">▼</button>
 </div>
 
+<div id="stationPanel" hidden>
+  <div class="sheet">
+    <div class="head"><b>駅を切り替える</b><button id="stationClose" class="x" type="button" aria-label="閉じる">✕</button></div>
+    <div id="stationList"></div>
+  </div>
+</div>
+
 <div id="destPanel" hidden>
   <div class="sheet">
     <div class="head">
@@ -107,7 +114,7 @@
 <div id="help">
   <div class="sheet">
     <b>エキさんぽ</b>
-    <p>JR池袋駅と地下街を、人の目線で歩き回れます。</p>
+    <p><span id="helpStation">JR の駅</span>と地下街を、人の目線で歩き回れます。左上の駅名を押すと、ほかの駅（池袋・東京・新宿・渋谷・品川・高輪ゲートウェイ）に切り替えられます。</p>
     <ul>
       <li class="pc"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>・矢印キーで歩く、<kbd>Shift</kbd> で速く</li>
       <li class="pc">画面をドラッグで見回す</li>
@@ -119,7 +126,7 @@
       <li>壁や改札機にはぶつかります。改札機のあいだを通り抜けてください</li>
     </ul>
     <p id="helpCredit" class="note"></p>
-    <p class="note">版: <span id="appVer">10/28 13:19（mvrlujup）</span></p>
+    <p class="note">版: <span id="appVer">10/28 13:55（mvrn4r2x）</span></p>
     <button id="helpOk" class="btn primary" type="button">歩きはじめる</button>
   </div>
 </div>
@@ -127,6 +134,6 @@
 <footer id="credit"></footer>
 <div id="loading">読み込み中…</div>
 
-<script type="module" src="src/app.js?v=mvrlujup"></script>
+<script type="module" src="src/app.js?v=mvrn4r2x"></script>
 </body>
 </html>
