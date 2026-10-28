@@ -15,7 +15,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); f
 #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
-#top { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 12px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+/* 方角の帯（いちばん上）。左上のボタン・案内の札はその下 */
+#compass { position: fixed; left: 50%; transform: translateX(-50%); top: max(6px, env(safe-area-inset-top)); width: min(calc(100vw - 24px), 640px); height: 28px; border-radius: 14px; overflow: hidden; background: rgba(28, 35, 51, 0.78); box-shadow: var(--shadow); pointer-events: none; z-index: 5; }
+#compass canvas { width: 100%; height: 100%; display: block; }
+#top { position: fixed; top: calc(max(6px, env(safe-area-inset-top)) + 36px); left: 12px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
 #top > * { pointer-events: auto; }
 button.brand { border: none; font: inherit; color: inherit; cursor: pointer; }
 .brand .chev { font-size: 11px; color: var(--sub); }
@@ -29,7 +32,7 @@ button.brand { border: none; font: inherit; color: inherit; cursor: pointer; }
 .pill.fare.out { background: #6b737b; }
 .btn { border: none; border-radius: 22px; padding: 10px 18px; font-weight: 700; box-shadow: var(--shadow); background: var(--panel); }
 .btn.primary { background: var(--accent); color: #fff; }
-#leftBtns { position: fixed; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 46px); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+#leftBtns { position: fixed; left: 12px; top: calc(max(6px, env(safe-area-inset-top)) + 82px); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 #recBtn { display: flex; align-items: center; gap: 6px; }
 .recDot { width: 12px; height: 12px; border-radius: 50%; background: #e0352b; }
 #recBtn.on { background: #e0352b; color: #fff; }
@@ -48,7 +51,7 @@ a.btn { text-decoration: none; display: inline-block; }
 #videoPrev { width: 100%; max-height: 32vh; background: #000; border-radius: 8px; }
 .x { border: none; background: transparent; font-size: 18px; padding: 4px 8px; color: var(--sub); }
 
-#guide { position: fixed; left: 50%; transform: translateX(-50%); top: calc(max(10px, env(safe-area-inset-top))); background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 8px 8px 8px 12px; display: flex; gap: 10px; align-items: center; max-width: min(92vw, 420px); }
+#guide { position: fixed; left: 50%; transform: translateX(-50%); top: calc(max(6px, env(safe-area-inset-top)) + 36px); background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 8px 8px 8px 12px; display: flex; gap: 10px; align-items: center; max-width: min(92vw, 420px); }
 #guide[hidden] { display: none; }
 #arrow { color: var(--accent); width: 44px; height: 44px; transition: transform 0.12s linear; }
 #guide .txt { min-width: 0; }
@@ -145,4 +148,8 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
   .floorPick button { width: 30px; height: 26px; font-size: 11px; }
   body.touch #replayBar { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 184px); left: 12px; width: calc(100vw - 24px); }
   .brand span { display: none; }
+  /* 案内中は、案内の札を方角の帯のすぐ下に横いっぱいに出し、駅名・ボタンはその下へ（札が左上のボタンに重なっていた） */
+  #guide { left: 12px; right: 12px; transform: none; max-width: none; }
+  body:has(#guide:not([hidden])) #top { top: calc(max(6px, env(safe-area-inset-top)) + 112px); }
+  body:has(#guide:not([hidden])) #leftBtns { top: calc(max(6px, env(safe-area-inset-top)) + 158px); }
 }

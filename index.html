@@ -5,13 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>エキさんぽ</title>
 <meta name="description" content="JR の駅（池袋・東京・新宿・渋谷・品川・高輪ゲートウェイ）と地下街を、人の目線で自由に歩き回れる立体の構内図">
-<link rel="stylesheet" href="src/style.css?v=mvrpggyk">
+<link rel="stylesheet" href="src/style.css?v=mvrpz25c">
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 </head>
 <body>
 <canvas id="view"></canvas>
+
+<div id="compass" aria-hidden="true"><canvas id="compassCv"></canvas></div>
 
 <header id="top">
   <button id="stationBtn" class="brand" type="button" aria-label="駅を切り替える"><b>エキさんぽ</b><span id="stationName">駅</span><span class="chev">▾</span></button>
@@ -123,10 +125,11 @@
       <li>右下の地図をタップすると、その場所へ移動。左の 2F・1F・B1 で階を切り替え</li>
       <li>「出発・行き先」で出発（いまいる所のままでもよい）と行き先（改札・ホーム・トイレ・エレベーター・地下街の出口やお店）を選び、「案内を始める」で床の矢印と画面上の矢印の案内</li>
       <li>左上の「改札内・改札外」で、いまいる所が改札の中か外かが分かる</li>
+      <li>いちばん上の帯で、向いている方角（東西南北）と、駅のまわりの目印（池袋ならサンシャインシティ・ホテルメトロポリタンなど）の方向が分かる</li>
       <li>壁や改札機にはぶつかります。改札機のあいだを通り抜けてください</li>
     </ul>
     <p id="helpCredit" class="note"></p>
-    <p class="note"><a href="manual.html" target="_blank" rel="noopener">使い方（録画と共有・URL・データ）</a>　版: <span id="appVer">10/28 15:00（mvrpggyk）</span></p>
+    <p class="note"><a href="manual.html" target="_blank" rel="noopener">使い方（録画と共有・URL・データ）</a>　版: <span id="appVer">10/28 15:14（mvrpz25c）</span></p>
     <button id="helpOk" class="btn primary" type="button">歩きはじめる</button>
   </div>
 </div>
@@ -134,6 +137,6 @@
 <footer id="credit"></footer>
 <div id="loading">読み込み中…</div>
 
-<script type="module" src="src/app.js?v=mvrpggyk"></script>
+<script type="module" src="src/app.js?v=mvrpz25c"></script>
 </body>
 </html>

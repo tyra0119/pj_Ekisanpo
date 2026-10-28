@@ -2,15 +2,15 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrpggyk';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrpggyk';
-import { addTrains } from './trains.js?v=mvrpggyk';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrpz25c';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrpz25c';
+import { addTrains } from './trains.js?v=mvrpz25c';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvrpggyk'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvrpz25c'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -1278,6 +1278,59 @@ const seen = (() => { try { return localStorage.getItem('ekisanpo.help') === '1'
 $('help').hidden = seen || replaying;
 $('helpOk').onclick = () => { $('help').hidden = true; try { localStorage.setItem('ekisanpo.help', '1'); } catch { /* 保存できなくてもよい */ } };
 
+// ---------- 方角の帯 ----------
+// 向いている方向の左右 75° を帯の幅に。東西南北と、駅のまわりの目印（data.marks）の方向を出す（地下で方向が分からなくならないように）。
+// 帯の外の目印は、左右の端に「◀ 名前」で近い方から 1 つずつ
+const cmp = { cv: $('compassCv'), key: '' };
+function drawCompass() {
+  const cv = cmp.cv, w = cv.clientWidth, h = cv.clientHeight, dpr = devicePixelRatio || 1;
+  const key = `${w}|${Math.round(me.yaw * 200)}|${Math.round(me.x)}|${Math.round(me.y)}`;
+  if (key === cmp.key || !w) return;
+  cmp.key = key;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const SPAN = (75 * Math.PI) / 180, cx = w / 2, px = (w / 2 - 6) / SPAN;
+  const rel = (b) => Math.atan2(Math.sin(b - me.yaw), Math.cos(b - me.yaw));
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  // 目盛り（15° ごと）と東西南北
+  for (let d = 0; d < 360; d += 15) {
+    const a = rel((d * Math.PI) / 180);
+    if (Math.abs(a) > SPAN) continue;
+    const x = cx + a * px, card = d % 90 === 0;
+    if (card) {
+      g.font = 'bold 13px system-ui, sans-serif';
+      g.fillStyle = d === 0 ? '#ff6b5e' : '#fff';
+      g.fillText('北東南西'[d / 90], x, h / 2 + 1);
+    } else {
+      g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x, h - (d % 45 === 0 ? 9 : 6)); g.lineTo(x, h); g.stroke();
+    }
+  }
+  // 目印: 帯の外のものは左右の端に「◀ 名前」（近い方から 1 つ）。先に描いて場所を取り、帯の中の名前の札はそこと重ならないように
+  // （札どうしが重なるときは、一覧の先のものを残す）
+  const marks = (data.marks || []).map(([name, mx, my]) => [name, rel(Math.atan2(mx - me.x, my - me.y))]);
+  const used = [], side = { l: null, r: null };
+  for (const [name, a] of marks) if (Math.abs(a) > SPAN) { const k = a < 0 ? 'l' : 'r'; if (!side[k] || Math.abs(a) < Math.abs(side[k][1])) side[k] = [name, a]; }
+  g.font = '11px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,0.85)';
+  if (side.l) { const t = `◀ ${side.l[0]}`; g.textAlign = 'left'; g.fillText(t, 8, h / 2 + 0.5); used.push([0, g.measureText(t).width + 14]); }
+  if (side.r) { const t = `${side.r[0]} ▶`; g.textAlign = 'right'; g.fillText(t, w - 8, h / 2 + 0.5); used.push([w - g.measureText(t).width - 14, w]); }
+  g.font = 'bold 11px system-ui, sans-serif'; g.textAlign = 'center';
+  for (const [name, a] of marks) {
+    if (Math.abs(a) > SPAN) continue;
+    const tw = g.measureText(name).width + 12, x = Math.max(tw / 2 + 2, Math.min(w - tw / 2 - 2, cx + a * px));
+    if (used.some(([l, r]) => x + tw / 2 > l && x - tw / 2 < r)) continue;
+    used.push([x - tw / 2, x + tw / 2]);
+    g.fillStyle = '#0b8f4d';
+    g.beginPath(); g.roundRect(x - tw / 2, 5, tw, h - 10, 8); g.fill();
+    g.fillStyle = '#fff'; g.fillText(name, x, h / 2 + 0.5);
+  }
+  // 真ん中（向いている方向）の印
+  g.fillStyle = '#ffd24a';
+  g.beginPath(); g.moveTo(cx - 5, 0); g.lineTo(cx + 5, 0); g.lineTo(cx, 6); g.fill();
+}
+
 // ---------- ループ ----------
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
@@ -1347,6 +1400,7 @@ function frame(now) {
   updateGuide();
   updateElev();
   drawMini();
+  drawCompass();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
