@@ -2,15 +2,15 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrn4r2x';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrn4r2x';
-import { addTrains } from './trains.js?v=mvrn4r2x';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvrou76x';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvrou76x';
+import { addTrains } from './trains.js?v=mvrou76x';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvrn4r2x'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvrou76x'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -1254,6 +1254,10 @@ if (!replaying) {
   const find = (s) => s && (data.dest.find((d) => d.name === s) || data.dest.find((d) => d.name.startsWith(s)));
   const from = find(q.get('from')), to = find(q.get('to'));
   if (from) startAt(from, false);
+  else { // はじめの位置も、出発地と同じ降り方で（改札口の点が通路の外にある駅で、動けない所に立っていた。渋谷の西口）
+    const g = data.dest.find((d) => d.name === '中央改札1') || data.dest.find((d) => d.t === 'gate' && /改札$/.test(d.name)) || data.dest.find((d) => d.t === 'gate');
+    if (g) { startAt(g, false); startName = null; }
+  }
   if (to) setDest(to);
   if (from && to && nav.pts) { const p = nav.pts.find((t, i) => i > 0 && Math.hypot(t.x - me.x, t.y - me.y) > 3); if (p) me.yaw = Math.atan2(p.x - me.x, p.y - me.y); }
 }
