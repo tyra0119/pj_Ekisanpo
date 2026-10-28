@@ -538,10 +538,11 @@ export function buildWorld(data, mallBuf, scene) {
   const mallMeshes = [
     meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall, { uv: 'side' }), meshOf(toThree(get('ceil')), M.mallCeil),
     meshOf(toThree(get('inst')), M.mallInst), meshOf(toThree(get('door')), M.mallDoor),
+    meshOf(toThree(get('stair')), M.mallInst), // 階段の蹴上げ・側面（踏み面は床に入れてある。当たり判定には使わない）
     // 閉じる面（向こうがデータの範囲外。となりの建物・デパートの地下などへの口）は明るいガラスの面に
     meshOf(toThree(get('closure')), M.mallClosure, { uv: 'side' }),
   ];
-  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor', 'mallClosure'].forEach((n, i) => { mallMeshes[i].name = n; });
+  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor', 'mallStair', 'mallClosure'].forEach((n, i) => { mallMeshes[i].name = n; });
   scene.add(...mallMeshes);
 
   // 天井の蛍光灯: 駅の向き（階段の向きの平均）にそろえ、3.6 m × 2.4 m ごとに細長い光る板を並べる
