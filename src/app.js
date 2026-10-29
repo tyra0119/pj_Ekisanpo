@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvtapwhc';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvtapwhc';
-import { addTrains } from './trains.js?v=mvtapwhc';
-import { routeSteps, stepLine } from './steps.js?v=mvtapwhc';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvtbdrdn';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvtbdrdn';
+import { addTrains } from './trains.js?v=mvtbdrdn';
+import { routeSteps, stepLine } from './steps.js?v=mvtbdrdn';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvtapwhc'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvtbdrdn'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -657,6 +657,179 @@ function fareSide(x, y, l) {
     return paid[i] ? 'in' : 'out';
   }
   return 'out';
+}
+
+// ---------- 吊り下げの案内看板 ----------
+// 経路網の分かれ道（同じ階の 3 方向以上につながる点。ホームの上は除く）の手前 2.5 m に、近づいてくる人の側を向けて天井から下げる。
+// 改札とホームの番線のそれぞれへ経路網で道をたどり（graphChain と同じ損: 改札を通る・床の途切れた線）、その分かれ道から進む向きを
+// 近づいてくる向きに対する矢印（← ↖ ↑ ↗ →）にする。向きが 2 つ以上に分かれる所だけ。改札は黄色、ホームは黒（JR の案内の色）。
+// 行き先まで 8 m 以内のものは出さない。後ろへ戻る道のものは出さない。分かれ道は 12 m 以内を 1 つにまとめ、同じ向きの看板は 15 m（同じ中身は 30 m）以内に 2 つ置かない。全部の番線へ同じ向きなら「のりば（全番線）」
+const guideSigns = [];
+{
+  const n = GN.length;
+  // 行き先: 改札（名前ごと）と、ホーム（番線ごと）
+  const targets = [
+    ...data.dest.filter((d) => d.t === 'gate').map((d) => ({ kind: 'gate', name: d.name, nodes: d.nodes })),
+    ...data.dest.filter((d) => d.t === 'plat').map((d) => ({ kind: 'plat', code: d.code, name: d.name, nodes: d.nodes })),
+  ].filter((t) => t.nodes?.length);
+  // 逆向きにたどる（行き先からの距離と、行き先へ向かう次の点）
+  const radj = GN.map(() => []);
+  for (const [i, j, len, mode, bi] of data.graph.e) { radj[j].push([i, len, mode]); if (bi) radj[i].push([j, len, mode]); }
+  for (const t of targets) {
+    const dist = new Float64Array(n).fill(Infinity), next = new Int32Array(n).fill(-1), done = new Uint8Array(n);
+    const sides = new Set(t.nodes.map((i) => paid[i])), cost = sides.size === 1 ? GATE_COST : 0;
+    const heap = []; // [距離, 点] の小さい順（東京は 3,000 点・行き先 40 なので、毎回いちばん近い点を探すと遅い）
+    const push = (d, v) => { heap.push([d, v]); let i = heap.length - 1; while (i) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const a = 2 * i + 1, b = a + 1; let m = i; if (a < heap.length && heap[a][0] < heap[m][0]) m = a; if (b < heap.length && heap[b][0] < heap[m][0]) m = b; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    for (const i of t.nodes) { dist[i] = 0; push(0, i); }
+    while (heap.length) {
+      const [du, u] = pop();
+      if (done[u] || du > dist[u]) continue;
+      done[u] = 1;
+      for (const [v, len, mode] of radj[u]) { // v → u の線
+        const nd = dist[u] + len + (mode === 5 ? 60 : 0) + (mode === 6 || mode === 7 || (GN[u][2] === GN[v][2] && paid[u] !== paid[v]) ? cost : 0) + (edgeGap(u, v) ? 3000 : 0);
+        if (nd < dist[v]) { dist[v] = nd; next[v] = u; push(nd, v); }
+      }
+    }
+    t.dist = dist; t.next = next;
+  }
+  const inRing = (x, y, r) => { let s = false; for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) if ((r[i + 1] > y) !== (r[j + 1] > y) && x < ((r[j] - r[i]) * (y - r[i + 1])) / (r[j + 1] - r[i + 1]) + r[i]) s = !s; return s; };
+  const onPlat = (x, y, l) => data.floors.some((f) => f.k === 'plat' && f.l === l && inRing(x, y, f.r[0]));
+  const nb = GN.map(() => new Set());
+  for (const [i, j] of data.graph.e) if (GN[i][2] === GN[j][2]) { nb[i].add(j); nb[j].add(i); }
+  const ARROWS = ['L', 'UL', 'U', 'UR', 'R'];
+  const arrowOf = (ax, ay, bx, by) => { // 近づく向き (ax, ay) に対する進む向き (bx, by)。左が正
+    const a = Math.atan2(ax * by - ay * bx, ax * bx + ay * by) * 180 / Math.PI;
+    if (Math.abs(a) < 25) return 'U';
+    if (Math.abs(a) < 65) return a > 0 ? 'UL' : 'UR';
+    if (Math.abs(a) < 135) return a > 0 ? 'L' : 'R';
+    return null; // 後ろ
+  };
+  // 分かれ道 J から行き先 t へ進む向き: 次の点をたどって 3 m 以上離れた所（階が変わる所まで）
+  const goDir = (J, t) => {
+    let v = J;
+    for (let k = 0; k < 12; k++) {
+      const w = t.next[v];
+      if (w < 0) return null;
+      if (GN[w][2] !== GN[J][2]) return [GN[w][0] - GN[J][0], GN[w][1] - GN[J][1], w, v === J ? w : v];
+      v = w;
+      if (Math.hypot(GN[v][0] - GN[J][0], GN[v][1] - GN[J][1]) >= 3) break;
+    }
+    return [GN[v][0] - GN[J][0], GN[v][1] - GN[J][1], v, t.next[J]];
+  };
+  const codeList = (codes) => { // 記号（K・S など）ごとに、3 つ以上続く番号は「1〜4」に
+    const by = {};
+    for (const c of new Set(codes)) { const m = /^(\D*)(\d+)$/.exec(c); (by[m ? m[1] : c] = by[m ? m[1] : c] || []).push(m ? +m[2] : null); }
+    return Object.entries(by).map(([p, ks]) => {
+      const nums = ks.filter((k) => k != null).sort((a, b) => a - b), out = ks.some((k) => k == null) ? [p] : [];
+      for (let i = 0; i < nums.length;) {
+        let j = i;
+        while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+        out.push(j - i >= 2 ? `${p}${nums[i]}〜${p}${nums[j]}` : nums.slice(i, j + 1).map((k) => p + k).join('・'));
+        i = j + 1;
+      }
+      return out.join('・');
+    }).join('・') + '番線';
+  };
+  // 分かれ道: 12 m 以内のものは 1 つに（つながる線の多い点から）。東京は経路網の点が細かく、そのままでは 1,500 枚を超えた
+  const junctions = [];
+  for (const J of [...GN.keys()].filter((i) => nb[i].size >= 3).sort((a, b) => nb[b].size - nb[a].size)) {
+    const [jx, jy, jl] = GN[J];
+    if (onPlat(jx, jy, jl) || junctions.some((k) => GN[k][2] === jl && Math.hypot(GN[k][0] - jx, GN[k][1] - jy) < 12)) continue;
+    junctions.push(J);
+  }
+  const allPlats = new Set(targets.filter((t) => t.kind === 'plat').map((t) => t.code));
+  for (const J of junctions) {
+    const [jx, jy, jl] = GN[J];
+    for (const A of nb[J]) {
+      const [ax, ay] = GN[A], L = Math.hypot(jx - ax, jy - ay);
+      if (L < 4) continue; // 4 m 以上の通路から近づく向きだけ
+      const ux = (jx - ax) / L, uy = (jy - ay) / L; // 近づく向き
+      const groups = {};
+      for (const t of targets) {
+        if (!(t.dist[J] < 1e6) || t.dist[J] < 8) continue;
+        const g = goDir(J, t);
+        if (!g || t.next[J] === A) continue;
+        const ar = arrowOf(ux, uy, g[0], g[1]);
+        if (ar) (groups[ar] = groups[ar] || []).push(t);
+      }
+      const keys = ARROWS.filter((k) => groups[k]);
+      if (keys.length < 2) continue;
+      // 看板の中身: 向きごとに、改札（近い 2 つ）とホーム（番線をまとめる）
+      const segs = [];
+      for (const k of keys) {
+        const gs = groups[k].filter((t) => t.kind === 'gate').sort((p, q) => p.dist[J] - q.dist[J]).slice(0, 2);
+        const ps = groups[k].filter((t) => t.kind === 'plat');
+        if (gs.length) segs.push({ arrow: k, kind: 'gate', text: gs.map((t) => t.name).join('・') });
+        if (ps.length) segs.push({ arrow: k, kind: 'plat', text: allPlats.size > 2 && ps.length === allPlats.size ? 'のりば（全番線）' : codeList(ps.map((t) => t.code)) });
+      }
+      // 置く所: 分かれ道の手前 2.5 m（線が短ければ半分）。床の上で、天井の下
+      const back = Math.min(2.5, L / 2), px = jx - ux * back, py = jy - uy * back;
+      const gz = phys.groundAt(px, py, LV[jl].z);
+      if (gz == null || Math.abs(gz - LV[jl].z) > 0.6) continue;
+      const key = segs.map((sg) => sg.arrow + sg.text).join('|');
+      if (guideSigns.some((s) => s.l === jl && s.ux * ux + s.uy * uy > 0.7 && Math.hypot(s.x - px, s.y - py) < (s.key === key ? 30 : 15))) continue; // 同じ向きは 15 m、同じ中身は 30 m 以内に 2 つ置かない
+      if (guideSigns.some((s) => s.l === jl && Math.hypot(s.x - px, s.y - py) < 1.5)) continue;
+      guideSigns.push({ x: px, y: py, z: gz, l: jl, ux, uy, segs, key });
+    }
+  }
+  // 看板の絵: 区切りごとに 矢印 + 文字。改札は黄色の地に黒、ホームは黒の地に白
+  const drawArrow = (g, k, x, y, s, col) => { // 中心 (x, y)、大きさ s
+    const a = { L: Math.PI, UL: (Math.PI * 3) / 4, U: Math.PI / 2, UR: Math.PI / 4, R: 0 }[k];
+    g.save(); g.translate(x, y); g.rotate(-a); g.fillStyle = col;
+    g.beginPath(); g.moveTo(s, 0); g.lineTo(0, -s * 0.8); g.lineTo(0, -s * 0.32); g.lineTo(-s, -s * 0.32); g.lineTo(-s, s * 0.32); g.lineTo(0, s * 0.32); g.lineTo(0, s * 0.8); g.closePath(); g.fill();
+    g.restore();
+  };
+  const FONT = 'bold 38px system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif'; // 看板の数が多い（東京）ので絵は小さく（高さ 64 画素）
+  const frame = new THREE.MeshLambertMaterial({ color: '#3a4048' }), backing = new THREE.MeshLambertMaterial({ color: '#b4bbc1' }); // 裏は明るい灰色（黒いと、裏から見た看板が天井の下で重たく見えた）
+  const meas = document.createElement('canvas').getContext('2d');
+  meas.font = FONT;
+  // 文字の絵は近いものだけ作る（guideUpdate。東京は 500 枚あり、全部作るとスマホで重い）
+  const paint = (s) => {
+    const c = document.createElement('canvas'), g = c.getContext('2d');
+    c.width = Math.ceil(s.ws.reduce((a, b) => a + b, 0)); c.height = 64;
+    let x = 0;
+    s.segs.forEach((sg, i) => {
+      const [bg, fg] = sg.kind === 'gate' ? ['#f5c400', '#111'] : ['#1f2328', '#fff'];
+      g.fillStyle = bg; g.fillRect(x, 0, s.ws[i], 64);
+      if (i) { g.fillStyle = '#8a9096'; g.fillRect(x, 0, 2, 64); }
+      drawArrow(g, sg.arrow, x + 14 + 23, 32, 21, fg);
+      g.font = FONT; g.fillStyle = fg; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText(sg.text, x + 14 + 46 + 10, 34);
+      x += s.ws[i];
+    });
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+    return t;
+  };
+  guideSigns.paint = paint;
+  for (const s of guideSigns) {
+    s.ws = s.segs.map((sg) => 14 + 46 + 10 + meas.measureText(sg.text).width + 16);
+    let h = 0.42, w = (h * s.ws.reduce((a, b) => a + b, 0)) / 64;
+    if (w > 4.2) { h *= 4.2 / w; w = 4.2; } // 長い看板は小さく
+    const ceil = LV[s.l].ceil || 2.9, zc = s.z + Math.min(2.45, ceil - 0.2 - h / 2), top = LV[s.l].z + ceil;
+    const grp = new THREE.Group();
+    grp.add(new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, h + 0.06, 0.06), backing));
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: '#2a2f35' })); // 光る板（絵は近づいてから）
+    face.position.z = 0.035; grp.add(face);
+    s.face = face; s.zc = zc;
+    const rodLen = Math.max(0.05, top - zc - h / 2);
+    for (const sx of [-w / 2 + 0.2, w / 2 - 0.2]) { const rod = new THREE.Mesh(new THREE.BoxGeometry(0.03, rodLen, 0.03), frame); rod.position.set(sx, h / 2 + rodLen / 2, 0); grp.add(rod); }
+    grp.position.copy(V3(s.x, s.y, zc));
+    grp.rotation.y = Math.atan2(-s.ux, s.uy); // 表（+z）を近づいてくる人の側 (-ux, -uy) へ
+    scene.add(grp);
+  }
+}
+// 自分から 50 m 以内（高さの差 8 m 以内）の看板に文字の絵を付け、70 m より遠くなったら外す。0.5 秒ごと
+let guideAcc = 1;
+function guideUpdate(dt) {
+  guideAcc += dt;
+  if (guideAcc < 0.5) return;
+  guideAcc = 0;
+  for (const s of guideSigns) {
+    const d = Math.hypot(s.x - me.x, s.y - me.y), dz = Math.abs(s.zc - me.z);
+    const mat = s.face.material;
+    if (!mat.map && d < 50 && dz < 8) { mat.map = guideSigns.paint(s); mat.color.set('#fff'); mat.needsUpdate = true; }
+    else if (mat.map && (d > 70 || dz > 12)) { mat.map.dispose(); mat.map = null; mat.color.set('#2a2f35'); mat.needsUpdate = true; }
+  }
 }
 
 // ---------- 道のりの区切りと目印（steps.js） ----------
@@ -1812,6 +1985,7 @@ function frame(now) {
     if (side !== fareShown) { fareShown = side; $('fare').textContent = side === 'in' ? '改札内' : '改札外'; $('fare').className = `pill fare ${side}`; }
   }
   trains.update(dt);
+  guideUpdate(dt);
   watchLevel();
   updateGuide();
   updateReplayGuide();
@@ -1826,4 +2000,4 @@ $('loading').hidden = true;
 requestAnimationFrame(frame);
 
 // 確かめ用（コンソールから位置を見る・動かす）
-window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt, scene, camera, THREE, fareSide, stepHelp, fareRows };
+window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt, scene, camera, THREE, fareSide, stepHelp, fareRows, guideSigns };

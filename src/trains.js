@@ -216,6 +216,19 @@ function addBoards(scene, data, trains) {
     grp.rotation.y = Math.atan2(fx, -fy); // 板の表（+z）を (fx, fy) へ（データの (x, y) は three.js の (x, 0, -y)）
     scene.add(grp);
   };
+  // 乗車位置の印（床）: 路線の色の枠と、線路の側を指す 3 つの三角。路線の色ごとに 1 枚の絵
+  const markTex = {}, markGeo = new THREE.PlaneGeometry(1.4, 0.8);
+  const markMat = (col) => markTex[col] || (markTex[col] = (() => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 146;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillRect(6, 6, 244, 134);
+    g.strokeStyle = col; g.lineWidth = 10; g.strokeRect(6, 6, 244, 134);
+    g.fillStyle = col;
+    for (const x of [64, 128, 192]) { g.beginPath(); g.moveTo(x, 30); g.lineTo(x + 30, 112); g.lineTo(x - 30, 112); g.closePath(); g.fill(); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  })());
+  const N = data.graph.n;
   const boards = [];
   for (const o of trains) {
     const { d, cx, cy, ux, uy, plat } = o.tr;
@@ -224,6 +237,20 @@ function addBoards(scene, data, trains) {
     const side = (x, y) => Math.sign((x - cx) * nx + (y - cy) * ny) || 1; // 線路のどちら側か
     const inward = (x, y) => { const s = side(x, y); return [x + s * 0.6 * nx, y + s * 0.6 * ny]; }; // 線路から離れる向きへ 0.6 m
     const along = (p) => (p[0] - cx) * ux + (p[1] - cy) * uy;
+    // 乗車位置の印: 乗車位置の点を線路に直角に動かし、ホームドアの線（線路の中心から 1.53 m）から 0.6 m ホームの側に。三角は線路の側へ
+    for (const i of d.nodes) {
+      const [x, y, l] = N[i], s = (x - cx) * nx + (y - cy) * ny, sg = Math.sign(s) || 1;
+      if (l !== d.level || Math.abs(s) > 8) continue;
+      const k = Math.abs(s) - 1.53 - 0.6, mx = x - sg * nx * k, my = y - sg * ny * k;
+      if (!inRing(mx, my, r)) continue;
+      const m = new THREE.Mesh(markGeo, markMat(d.color || '#0b8f4d'));
+      m.rotation.x = -Math.PI / 2;
+      const grp = new THREE.Group();
+      grp.add(m);
+      grp.position.set(mx, LV[l].z + 0.01, -my);
+      grp.rotation.y = Math.atan2(sg * nx, -sg * ny); // 絵の上（データの +y）を線路の側 (-sg·n) へ
+      scene.add(grp);
+    }
     // 駅名標: 両端の点から 5 m 中ほどへ
     const nm = new THREE.MeshBasicMaterial({ map: nameBoard(st, d) }); // 光る板
     for (const p of [d.signs[0], d.signs[d.signs.length - 1]]) {
