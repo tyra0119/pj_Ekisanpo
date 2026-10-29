@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt4qyip';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt4qyip';
-import { addTrains } from './trains.js?v=mvt4qyip';
-import { routeSteps, stepLine } from './steps.js?v=mvt4qyip';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt5ruq4';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt5ruq4';
+import { addTrains } from './trains.js?v=mvt5ruq4';
+import { routeSteps, stepLine } from './steps.js?v=mvt5ruq4';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt4qyip'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvt5ruq4'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -301,9 +301,39 @@ for (const [i, j, len, mode, bi] of data.graph.e) { adj[i].push([j, len, mode]);
 const MODE = { 2: '階段', 4: 'エスカレーター', 5: 'エレベーター' };
 
 // 経路網で、いまいる所に近い 6 点から targets（点の番号の集合）のどれかへ。[{ v: 点の番号, mode: その点へ入る経路の種類 }]
+// 改札を通る線（両端の改札の内・外が違う線。経路網の種類 6・7 でない普通の通路の線にも、改札機の列を横切るものがある）と、いる所と内・外が
+// 違う点から歩きはじめることには GATE_COST の損を付け、改札を通る回数の少ない道を選ぶ（改札の外から外へ、改札に入ってすぐ別の改札から出る道を
+// 案内していた。池袋で外から 442 通りのうち 55 通り）。内・外は左上の「改札内・改札外」と同じ判定（fareSide）。損は 1 km 分
+const GATE_COST = 1000;
+const nodeSideMemo = [];
+const nodeSide = (i) => (nodeSideMemo[i] ??= fareSide(GN[i][0], GN[i][1], GN[i][2]));
+// 床の途切れた所を通る経路網の線（東京の八重洲南の 1F は、線が床の無い所を 10 m 以上通っていて、そこで歩けなくなった）は、ほかに道が無いとき
+// 以外は使わない。端の点の床の高さで 1 m ごとに床があるか見て、3 m 以上続けて無いもの
+const gapMemo = new Map();
+function edgeGap(u, v) {
+  const key = u < v ? u * 100000 + v : v * 100000 + u;
+  if (gapMemo.has(key)) return gapMemo.get(key);
+  const a = GN[u], b = GN[v];
+  let gap = false;
+  if (a[2] === b[2]) {
+    const z = phys.groundAt(a[0], a[1], LV[a[2]].z) ?? LV[a[2]].z, L = Math.hypot(b[0] - a[0], b[1] - a[1]), k = Math.max(2, Math.ceil(L));
+    let run = 0;
+    for (let i = 1; i < k && !gap; i++) {
+      const g = phys.groundAt(a[0] + ((b[0] - a[0]) * i) / k, a[1] + ((b[1] - a[1]) * i) / k, z);
+      run = g == null || Math.abs(g - z) > 1.2 ? run + L / k : 0;
+      if (run > 3) gap = true;
+    }
+  }
+  gapMemo.set(key, gap);
+  return gap;
+}
+// 損を付けるのは、行き先の点がみな改札の中か、みな外のときだけ（改札そのものが行き先のときは中からでも外からでも着けるので付けない。
+// 付けると東京の八重洲側の改札へ、外の経路網が床の切れ目を通る道を選んで歩けなくなった）
 function graphChain(px, py, pl, targets) {
   const n = GN.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), pmode = new Int8Array(n), done = new Uint8Array(n);
-  GN.map((g, i) => [i, Math.hypot(g[0] - px, g[1] - py) + (g[2] === pl ? 0 : 80)]).sort((a, b) => a[1] - b[1]).slice(0, 6).forEach(([i, c]) => { dist[i] = c; });
+  const side = fareSide(px, py, pl), tsides = new Set([...targets].map(nodeSide)), cost = tsides.size === 1 ? GATE_COST : 0;
+  GN.map((g, i) => [i, Math.hypot(g[0] - px, g[1] - py) + (g[2] === pl ? 0 : 80)]).sort((a, b) => a[1] - b[1]).slice(0, 6)
+    .forEach(([i, c]) => { dist[i] = c + (nodeSide(i) !== side ? cost : 0); });
   for (;;) {
     let u = -1, best = Infinity;
     for (let i = 0; i < n; i++) if (!done[i] && dist[i] < best) { best = dist[i]; u = i; }
@@ -315,7 +345,7 @@ function graphChain(px, py, pl, targets) {
     }
     done[u] = 1;
     for (const [v, len, mode] of adj[u]) {
-      const nd = dist[u] + len + (mode === 5 ? 20 : 0);
+      const nd = dist[u] + len + (mode === 5 ? 20 : 0) + (mode === 6 || mode === 7 || (GN[u][2] === GN[v][2] && nodeSide(u) !== nodeSide(v)) ? cost : 0) + (edgeGap(u, v) ? 3000 : 0);
       if (nd < dist[v]) { dist[v] = nd; prev[v] = u; pmode[v] = mode; }
     }
   }
@@ -329,7 +359,9 @@ function findRoute(px, py, pl, d) {
   if (!d.nodes) { // 地下街の行き先（経路網の外）
     if (pl === B1) return gridLeg(px, py, d.x, d.y) || [P(px, py, pl), P(d.x, d.y, B1)];
     // ほかの階からは、経路網で行き先に近い地下 1 階の点まで行き、そこからマス目
-    const near = GN.map((g, i) => [i, g]).filter(([, g]) => g[2] === B1).sort((a, b) => Math.hypot(a[1][0] - d.x, a[1][1] - d.y) - Math.hypot(b[1][0] - d.x, b[1][1] - d.y)).slice(0, 3).map(([i]) => i);
+    // 地下街の行き先は改札の外なので、改札の外の点を目指す（地図で選んだ場所は、その場所と同じ側）
+    const want = d.t === 'pin' ? fareSide(d.x, d.y, B1) : 'out';
+    const near = GN.map((g, i) => [i, g]).filter(([i, g]) => g[2] === B1 && nodeSide(i) === want).sort((a, b) => Math.hypot(a[1][0] - d.x, a[1][1] - d.y) - Math.hypot(b[1][0] - d.x, b[1][1] - d.y)).slice(0, 3).map(([i]) => i);
     const chain = graphChain(px, py, pl, new Set(near));
     if (!chain) return null;
     const pts = fromChain(chain), last = pts[pts.length - 1], leg = gridLeg(last.x, last.y, d.x, d.y);
@@ -345,7 +377,7 @@ function findRoute(px, py, pl, d) {
   }
   // トイレは 扉の外 → 扉 → 中 の順にたどる（扉が分からないものはトイレの点へ）
   if (d.t === 'toilet') for (const [x, y] of d.door ? [d.out, d.door, d.in] : [[d.x, d.y]]) pts.push(P(x, y, d.level));
-  if (d.t === 'elev' || d.t === 'fac') pts.push(P(d.x, d.y, d.level)); // 箱の中まで・設備の前の通路まで
+  if (d.t === 'elev' || d.t === 'fac' || d.t === 'pin') pts.push(P(d.x, d.y, d.level)); // 箱の中まで・設備の前の通路まで・地図で選んだ場所まで
   return pts;
 }
 
@@ -402,6 +434,17 @@ function getGrid() {
     const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 0.1));
     for (let k = 0; k <= n; k++) { const i = Math.floor((ax + ((bx - ax) * k) / n - x0) / C), j = Math.floor((ay + ((by - ay) * k) / n - y0) / C); if (i >= 0 && j >= 0 && i < W && j < H) ok[j * W + i] = v; }
   };
+  // 改札の帯: 改札機の列の線から 0.6 m 以内（列の両端から 1.5 m 先まで。列どうしのすき間も通れるので）。ここに入るのに GATE_COST の損
+  const gateCell = new Uint8Array(W * H);
+  for (const r of fareRows) {
+    if (r.l !== GL) continue;
+    const ext = Math.max(Math.abs(r.t0), Math.abs(r.t1)) + 2.5;
+    for (let j = Math.floor((r.cy - ext - y0) / C); j <= Math.ceil((r.cy + ext - y0) / C); j++) for (let i = Math.floor((r.cx - ext - x0) / C); i <= Math.ceil((r.cx + ext - x0) / C); i++) {
+      if (i < 0 || j < 0 || i >= W || j >= H) continue;
+      const x = x0 + (i + 0.5) * C, y = y0 + (j + 0.5) * C, t = (x - r.cx) * r.rx + (y - r.cy) * r.ry;
+      if (t > r.t0 - 1.5 && t < r.t1 + 1.5 && Math.abs(r.side(x, y)) < 0.6) gateCell[j * W + i] = 1;
+    }
+  }
   for (const [cx, cy, , len, , ang] of B1gates) { const ux = Math.cos(ang) * len / 2, uy = Math.sin(ang) * len / 2; line(cx - ux, cy - uy, cx + ux, cy + uy, 0); }
   for (let a = 0; a < B1gates.length; a++) for (let b = a + 1; b < B1gates.length; b++) {
     const [ax, ay, , len, , ang] = B1gates[a], [bx, by] = B1gates[b];
@@ -433,7 +476,7 @@ function getGrid() {
     if (n > mainSize) { mainSize = n; main = id; }
     id++;
   }
-  grid = { C, x0, y0, W, H, ok, near, comp, main, zc, sizes };
+  grid = { C, x0, y0, W, H, ok, near, comp, main, zc, sizes, gateCell };
   // 地下街の行き先のうち、つながった部分に寄せられないものは行けない（一覧から外す）
   for (const d of data.dest) if (!d.nodes && snapCell(d.x, d.y) < 0) d.unreach = 1;
   return grid;
@@ -474,7 +517,7 @@ function snapCell(x, y, wide = false) {
 // マス目の上の最短の道（A*、斜めは角をかすめない）。見通せる所はまっすぐにつなぐ。[[x, y], ...] か null
 function gridPath(ax, ay, bx, by) {
   if (!getGrid()) return null; // 地下街の無い駅
-  const { C, x0, y0, W, H, ok, near, zc } = grid;
+  const { C, x0, y0, W, H, ok, near, zc, gateCell } = grid;
   const s = snapCell(ax, ay), t = snapCell(bx, by);
   if (s < 0 || t < 0) return null;
   const N = W * H, g = new Float32Array(N).fill(Infinity), came = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
@@ -497,7 +540,7 @@ function gridPath(ax, ay, bx, by) {
       const nc = j * W + i;
       if (!ok[nc] || closed[nc] || Math.abs(zc[nc] - zc[c]) > STEP) continue; // 上れない段差
       if (di && dj && (!ok[cj * W + i] || !ok[j * W + ci])) continue; // 角をかすめない
-      const ng = g[c] + w + (near[nc] ? 2 : 0); // 壁ぎわは通りにくく（通路の真ん中を通る）
+      const ng = g[c] + w + (near[nc] ? 2 : 0) + (gateCell[nc] && !gateCell[c] ? GATE_COST / C : 0); // 壁ぎわは通りにくく（通路の真ん中を通る）。改札は通る回数を少なく
       if (ng < g[nc]) { g[nc] = ng; came[nc] = c; push(ng + hfn(nc), nc); }
     }
   }
@@ -1055,6 +1098,7 @@ function drawMini() {
   }
   mg.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 改札・トイレの名前
+  miniHits.length = 0;
   mg.font = 'bold 10px system-ui, sans-serif'; mg.textAlign = 'center'; mg.textBaseline = 'middle';
   for (const d of data.dest) {
     if (String(d.level) !== pl || d.t === 'plat' || d.t === 'elev' || d.t === 'spot') continue;
@@ -1064,6 +1108,7 @@ function drawMini() {
     mg.fillStyle = d.t === 'gate' || d.t === 'exit' ? '#f5c400' : d.t === 'ogate' ? '#e4d8f3' : d.t === 'fac' ? FAC_ICON[d.kind][1] : '#1c3f74';
     const w = mg.measureText(t).width + 6;
     mg.fillRect(x - w / 2, y - 7, w, 14);
+    miniHits.push([x - w / 2 - 4, y - 11, x + w / 2 + 4, y + 11, d]); // 指で押しやすく少し広く
     mg.fillStyle = d.t === 'toilet' || d.t === 'fac' ? '#fff' : '#111';
     mg.fillText(t, x, y);
   }
@@ -1113,13 +1158,17 @@ const panBy = (dx, dy) => {
   mini.cx -= bx - ax; mini.cy -= by - ay;
 };
 const local = (e) => { const r = mcv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-// 指 1 本・左クリックで、ほとんど動かさずに離したら「タップ」（その場所へ移動）
+// 指 1 本・左クリックで、ほとんど動かさずに離したら「タップ」: 改札・出口・トイレなどの印なら「行き先にする・ここへ移動」の札、
+// 印の無い所はその場所へ移動。長押し（0.55 秒）は、その場所を行き先にする札（利用者「行き先はミニマップからも選択できるようにしてほしい」）
 let tap = null;
+const miniHits = []; // 地図に描いた印の範囲 [x0, y0, x1, y1, 行き先]
 mcv.addEventListener('pointerdown', (e) => {
-  mcv.setPointerCapture(e.pointerId);
+  try { mcv.setPointerCapture(e.pointerId); } catch { /* 作った操作（確かめ用）では捕まえられない */ }
   const [x, y] = local(e);
   mp.set(e.pointerId, { x, y, btn: e.button });
+  if (tap?.timer) clearTimeout(tap.timer);
   tap = mp.size === 1 && e.button === 0 ? { id: e.pointerId, x, y, t: performance.now(), moved: false } : null;
+  if (tap) tap.timer = setTimeout(() => { if (tap && !tap.moved) { tap.long = true; openMiniPop(tap.x, tap.y, null); } }, 550);
 });
 mcv.addEventListener('pointermove', (e) => {
   const p = mp.get(e.pointerId);
@@ -1128,6 +1177,7 @@ mcv.addEventListener('pointermove', (e) => {
   if (tap && tap.id === e.pointerId && !tap.moved) {
     if (Math.hypot(x - tap.x, y - tap.y) < 6) return; // まだタップかもしれない
     tap.moved = true;
+    clearTimeout(tap.timer);
     p.x = tap.x; p.y = tap.y;
   }
   if (mp.size === 1) {
@@ -1149,10 +1199,38 @@ mcv.addEventListener('pointermove', (e) => {
 const mEnd = (e) => {
   mp.delete(e.pointerId);
   if (tap && tap.id === e.pointerId) {
-    if (e.type === 'pointerup' && !tap.moved && performance.now() - tap.t < 600) jumpTo(...S2W(tap.x, tap.y), Number(mini.floor ?? levelOf(me.z)));
+    clearTimeout(tap.timer);
+    if (e.type === 'pointerup' && !tap.moved && !tap.long) {
+      const hit = miniHits.find(([x0, y0, x1, y1]) => tap.x >= x0 && tap.x <= x1 && tap.y >= y0 && tap.y <= y1);
+      if (hit) openMiniPop(tap.x, tap.y, hit[4]);
+      else { closeMiniPop(); jumpTo(...S2W(tap.x, tap.y), Number(mini.floor ?? levelOf(me.z))); }
+    }
     tap = null;
   }
 };
+// 地図の上の小さな札: 行き先にする・ここへ移動。d が無いときは地図で選んだ場所（歩ける所に寄せる）
+let miniPopAt = null;
+function openMiniPop(sx, sy, d) {
+  const l = Number(mini.floor ?? levelOf(me.z));
+  let target = d;
+  if (!target) {
+    const to = landingAt(...S2W(sx, sy), l);
+    if (!to) { toast('そこへは行けません'); return; }
+    target = { t: 'pin', name: '地図で選んだ場所', x: to[0], y: to[1], level: l };
+    if (l !== GL) target.nodes = GN.map((g, i) => [i, g]).filter(([, g]) => g[2] === l).sort((a, b) => Math.hypot(a[1][0] - to[0], a[1][1] - to[1]) - Math.hypot(b[1][0] - to[0], b[1][1] - to[1])).slice(0, 3).map(([i]) => i);
+  }
+  miniPopAt = target;
+  $('mpName').textContent = target.name + (target.t === 'plat' && target.dir ? ` ${target.dir}` : '');
+  const pop = $('miniPop'), r = mcv.getBoundingClientRect();
+  pop.hidden = false;
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + sx - w / 2))}px`;
+  pop.style.top = `${Math.max(8, r.top + sy - h - 14)}px`;
+}
+function closeMiniPop() { $('miniPop').hidden = true; miniPopAt = null; }
+$('mpClose').onclick = closeMiniPop;
+$('mpDest').onclick = () => { const d = miniPopAt; closeMiniPop(); if (!d) return; startName = null; setDest(d); toast(`${d.name}への案内を始めます`); };
+$('mpGo').onclick = () => { const d = miniPopAt; closeMiniPop(); if (d) jumpTo(d.x, d.y, d.level); };
 mcv.addEventListener('pointerup', mEnd);
 mcv.addEventListener('pointercancel', mEnd);
 mcv.addEventListener('contextmenu', (e) => e.preventDefault());

@@ -36,7 +36,8 @@ export function routeSteps(P, H, { start = null, dest = null, jump = Infinity } 
     if (prev && s - prev.s < 5) { if (prev.dir !== g.dir) { ev.splice(ev.indexOf(prev), 1); } continue; }
     ev.push({ kind: 'gate', s, i, name: g.name, dir: g.dir });
   }
-  // 改札機の列の端の外を通った足あともあるので、改札の内・外が切り替わる所（1 m ごとに見て、2 m 続いたもの）も改札を通る所に
+  // 改札機の列の端の外を通った足あともあるので、改札の内・外が切り替わる所（1 m ごとに見て、2 m 続いたもの）も改札を通る所に。
+  // ただし 20 m 以内に改札があるときだけ（内・外の判定は改札から離れると近くの経路網の点で決めるので、改札の無い所で切り替わることがある）
   if (H.fareAt) {
     let state = null, cand = null;
     for (let sv = 0; sv <= total; sv += 1) {
@@ -48,7 +49,8 @@ export function routeSteps(P, H, { start = null, dest = null, jump = Infinity } 
       if (!cand) { cand = { sv, p }; continue; }
       if (sv - cand.sv >= 2) {
         state = f;
-        if (!ev.some((e) => e.kind === 'gate' && Math.abs(e.s - cand.sv) < 8)) ev.push({ kind: 'gate', s: cand.sv, name: H.gateNear(cand.p.x, cand.p.y, cand.p.l), dir: f });
+        const name = H.gateNear(cand.p.x, cand.p.y, cand.p.l);
+        if (name && !ev.some((e) => e.kind === 'gate' && Math.abs(e.s - cand.sv) < 8)) ev.push({ kind: 'gate', s: cand.sv, name, dir: f });
         cand = null;
       }
     }
@@ -61,6 +63,17 @@ export function routeSteps(P, H, { start = null, dest = null, jump = Infinity } 
     const a = at(Math.max(0, e.s - 3)), b = at(Math.min(total, e.s + 8));
     const fa = H.fareAt(a.x, a.y, a.l), fb = H.fareAt(b.x, b.y, b.l);
     if (fa === fb) ev.splice(j, 1); else e.dir = fb;
+  }
+  // 同じ改札で入る・出るが 15 m 以内に続くものは、列の端のそばを通っただけとみて両方除く（池袋の中央改札2 の東）
+  ev.sort((p, q) => p.s - q.s);
+  for (let j = ev.length - 1; j > 0; j--) {
+    const a = ev[j - 1], b = ev[j];
+    if (a.kind === 'gate' && b.kind === 'gate' && a.name === b.name && a.dir !== b.dir && b.s - a.s < 15) { ev.splice(j - 1, 2); j--; }
+  }
+  // 中にいるのに「中へ」、外にいるのに「外へ」は数え方の重なりなので除く（新宿の新南改札で「外へ」が 2 回続いた）
+  if (H.fareAt) {
+    let state = H.fareAt(P[0].x, P[0].y, P[0].l);
+    for (let j = 0; j < ev.length; j++) { const e = ev[j]; if (e.kind !== 'gate') continue; if (e.dir === state) { ev.splice(j, 1); j--; } else state = e.dir; }
   }
   // 曲がり角: 0.5 m ごとに、4 m 手前から今と、今から 4 m 先の向きの違い。35 度を超える所のいちばん大きい所
   const turns = [];

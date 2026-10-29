@@ -187,3 +187,10 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
 #replayBar #replayList { width: auto; padding: 0 8px; font-size: 13px; font-weight: 700; }
 #replayBar #replayPlay.next { width: auto; padding: 0 10px; font-weight: 800; background: #f08c00; color: #fff; }
 #guide.replay #gShare, #guide.replay #gClose { display: none; }
+/* 地図の上の小さな札（行き先にする・ここへ移動） */
+#miniPop { position: fixed; z-index: 6; background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); padding: 8px 10px 10px; width: 230px; }
+#miniPop[hidden] { display: none; }
+#miniPop .mpHead { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+#miniPop #mpName { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#miniPop .row { display: flex; gap: 6px; margin-top: 6px; }
+#miniPop .row .btn { flex: 1; padding: 7px 6px; font-size: 13px; }
