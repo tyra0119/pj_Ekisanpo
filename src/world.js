@@ -612,6 +612,42 @@ export function buildWorld(data, mallBuf, scene) {
     }
   }
 
+  // 券売機の並び（1 台 幅 0.75 m・高さ 1.85 m・奥行き 0.6 m。正面は上の緑の帯「きっぷ」・画面・お金の口・きっぷの出口。1 台の模様をくり返す）。当たりは箱のまわり 4 本の線
+  if ((data.ticketMachines || []).length) {
+    const c = document.createElement('canvas'); c.width = 96; c.height = 236;
+    const g = c.getContext('2d');
+    g.fillStyle = '#e4e8eb'; g.fillRect(0, 0, 96, 236);
+    g.fillStyle = '#0b8f4d'; g.fillRect(0, 0, 96, 30); // 上の帯
+    g.fillStyle = '#fff'; g.font = 'bold 19px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('きっぷ', 48, 16);
+    g.fillStyle = '#2b3138'; g.fillRect(12, 48, 72, 56); // 画面のふち
+    g.fillStyle = '#4f8fd6'; g.fillRect(16, 52, 64, 48); // 画面
+    g.fillStyle = '#d7e8fa'; for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) g.fillRect(20 + j * 30, 56 + i * 15, 26, 11); // 画面のボタン
+    g.fillStyle = '#c9ced3'; g.fillRect(8, 104, 80, 14); // 画面の下の台
+    g.fillStyle = '#2b3138';
+    g.fillRect(14, 126, 18, 5); // お金を入れる口
+    g.fillRect(48, 126, 34, 5); // お札を入れる口
+    g.fillRect(14, 140, 14, 14); // IC カードを置く所
+    g.fillStyle = '#e8b04a'; g.fillRect(17, 143, 8, 8);
+    g.fillStyle = '#2b3138'; g.fillRect(18, 176, 60, 14); // きっぷ・おつりの出口
+    g.fillStyle = '#9aa2aa'; g.fillRect(0, 222, 96, 14); // 台
+    g.fillStyle = '#b9c0c6'; g.fillRect(0, 30, 2, 192); g.fillRect(94, 30, 2, 192); // となりの台とのさかい
+    const front = new THREE.CanvasTexture(c);
+    front.colorSpace = THREE.SRGBColorSpace; front.wrapS = THREE.RepeatWrapping;
+    const body = new THREE.MeshLambertMaterial({ color: '#cfd5da' });
+    for (const [cx, cy, l, n, ang] of data.ticketMachines) {
+      const z = lz(l), w = n * 0.75, nx = Math.cos(ang), ny = Math.sin(ang), ux = -ny, uy = nx;
+      const map = front.clone(); map.needsUpdate = true; map.repeat.set(n, 1);
+      const fm = new THREE.MeshLambertMaterial({ map });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(w, 1.85, 0.6), [body, body, body, body, fm, body]); // +z の面が正面
+      box.position.set(...V(cx, cy, z + 0.925));
+      box.rotation.y = Math.atan2(nx, -ny);
+      scene.add(box);
+      const p = (a, b) => [cx + ux * a + nx * b, cy + uy * a + ny * b];
+      const q = [p(-w / 2, -0.3), p(w / 2, -0.3), p(w / 2, 0.3), p(-w / 2, 0.3)];
+      for (let i = 0; i < 4; i++) { const [a, b] = [q[i], q[(i + 1) % 4]]; phys.addSeg(a[0], a[1], b[0], b[1], z, z + 1.85); }
+    }
+  }
+
   // 地下街（PLATEAU）。地下街の無い駅は、どれも空
   const L = data.mall ? data.mall.layout : {};
   const get = (k) => (L[k] ? new Float32Array(mallBuf, L[k][0], L[k][1]) : new Float32Array(0)); // [バイトの位置, 数の個数]
