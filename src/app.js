@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu6p41p';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu6p41p';
-import { addTrains } from './trains.js?v=mvu6p41p';
-import { routeSteps, stepLine } from './steps.js?v=mvu6p41p';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu735me';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu735me';
+import { addTrains } from './trains.js?v=mvu735me';
+import { routeSteps, stepLine } from './steps.js?v=mvu735me';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvu6p41p'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvu735me'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -611,7 +611,9 @@ const onFare = GN.map((g) => fareLines.some((f) => {
   return Math.hypot(g[0] - f[0] - dx * t, g[1] - f[1] - dy * t) < 1;
 }));
 // 改札機の列ごとに、どちら側が改札内か。列は、となり合う改札機をつないでできるまとまり。向きは改札機に直角。
-// 改札内の側は、列の近く（6 m 以内）を通る改札の経路（種類 6）の改札内の点が、列のどちら側にあるかの多数決（点が列から 0.3 m 以内なら反対の点で）
+// 改札内の側は、列の近く（6 m 以内）を通る改札の経路（種類 6）の、改札外の点から改札内の点へ向かう向きの多数決。
+// （前は改札内の点が列のどちら側にあるかで数えていた。池袋の南改札は経路網の改札の線が実際の改札機の列より 4〜6 m 南にずれていて、
+// 改札内の点も列の南にあったので、南が改札内と逆に決まり、改札の外の帯が改札内になって案内が外を回った）
 const fareRows = [];
 {
   const G = data.gates, parent = G.map((_, i) => i), find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
@@ -634,7 +636,7 @@ const fareRows = [];
       const mx = (GN[i][0] + GN[j][0]) / 2, my = (GN[i][1] + GN[j][1]) / 2;
       if (Math.hypot(mx - cx, my - cy) > 6 + (t1 - t0) / 2) continue;
       const [pi, ui] = paid[i] ? [i, j] : [j, i], sp = side(GN[pi][0], GN[pi][1]), su = side(GN[ui][0], GN[ui][1]);
-      vote += Math.abs(sp) > 0.3 ? Math.sign(sp) : -Math.sign(su);
+      if (Math.abs(sp - su) > 0.3) vote += Math.sign(sp - su);
     }
     if (vote) fareRows.push({ l, cx, cy, rx, ry, t0, t1, side, inSign: Math.sign(vote) });
   }
