@@ -411,6 +411,16 @@ export function buildWorld(data, mallBuf, scene) {
     }
   }
 
+  // JR の面と地下街の床の高さの食い違い（0.8〜1.6 m）をつなぐ 2.5 m の坂。地下街が高ければ JR の床の上（内側）、低ければ地下街の床の上（外側）に
+  for (const [x0, y0, x1, y1, nx, ny, l, zm] of data.slopes || []) {
+    const z = lz(l), up = zm > z, d = up ? -2.5 : 2.5;
+    const q = [[x0, y0, up ? zm : z], [x1, y1, up ? zm : z], [x1 + nx * d, y1 + ny * d, up ? z : zm], [x0 + nx * d, y0 + ny * d, up ? z : zm]];
+    for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+      phys.addFloor(a, b, c);
+      push('concourse', V(...a), V(...b), V(...c), V(...a), V(...c), V(...b)); // 表裏とも
+    }
+  }
+
   // 床のすき間を埋める床（前処理で、両側 1 m 以内に高さの近い床があるすき間に作ったもの）
   for (const [x0, y0, x1, y1, z] of data.gapFloors || []) {
     const q = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
