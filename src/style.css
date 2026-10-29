@@ -63,6 +63,10 @@ a.btn { text-decoration: none; display: inline-block; }
 #miniCv { width: 100%; height: 100%; display: block; }
 .mapBtns { position: absolute; right: 6px; bottom: 6px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
 .mapBtns button { width: 34px; height: 34px; border-radius: 8px; border: none; background: #fff; color: #444; box-shadow: 0 1px 4px rgba(0,0,0,0.25); display: grid; place-items: center; font-size: 20px; line-height: 1; padding: 0; }
+/* 地図を大きくするボタン（右の 4 つのボタンの列の左上）。大きくしたときは十字キーを隠す（スマホで地図が重なる） */
+.bigBtn { position: absolute; top: 6px; right: 46px; width: 34px; height: 34px; border-radius: 8px; border: none; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.25); display: grid; place-items: center; padding: 0; }
+#mini.big { width: min(520px, calc(100vw - 24px)); height: min(520px, calc(100vh - 160px)); }
+body.miniBig #dpad, body.miniBig #stick { visibility: hidden; }
 .mapBtns .zoom { display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
 .mapBtns .zoom button { box-shadow: none; border-radius: 0; }
 .mapBtns .zoom button + button { border-top: 1px solid #e3e3e3; }
@@ -149,6 +153,8 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
   body.touch #replayBar { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 184px); left: 12px; width: calc(100vw - 24px); }
   /* エレベーターのボタンも十字キー・小さな地図の上に（実機で十字キーと地図に重なっていた） */
   body.touch #elev { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 184px); }
+  .bigBtn { top: 4px; right: 38px; width: 30px; height: 30px; }
+  #mini.big { width: calc(100vw - 24px); height: min(calc(100vw - 24px), calc(100vh - 300px)); }
   .brand span { display: none; }
   /* 案内中は、案内の札を方角の帯のすぐ下に横いっぱいに出し、駅名・ボタンはその下へ（札が左上のボタンに重なっていた） */
   #guide { left: 12px; right: 12px; transform: none; max-width: none; }
@@ -162,4 +168,6 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
   .mapBtns { gap: 4px; right: 4px; bottom: 4px; }
   .mapBtns button { width: 30px; height: 30px; font-size: 18px; }
   .floorPick button { width: 30px; height: 26px; font-size: 11px; }
+  .bigBtn { top: 4px; right: 38px; width: 30px; height: 30px; }
+  #mini.big { width: min(520px, calc(100vw - 360px)); height: calc(100vh - 140px); }
 }

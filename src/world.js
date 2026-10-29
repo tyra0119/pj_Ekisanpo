@@ -5,8 +5,8 @@ import * as THREE from 'three';
 
 export const EYE = 1.6;      // 目の高さ
 export const RADIUS = 0.25;  // 体の半径（壁との当たり）
-export const STEP = 0.6;     // 上れる段差（JR の地下 1 階と東側の地下街の床が約 0.5 m 食い違うので、それを越えられる高さ）
-export const DROP = 0.7;     // 下りられる段差（これより深い所へは進めない）
+export const STEP = 0.8;     // 上れる段差（JR の地下 1 階と地下街の床の食い違い: 池袋の東側 約 0.5 m、東京の八重洲地下街 約 0.72 m を越えられる高さ）
+export const DROP = 0.85;    // 下りられる段差（これより深い所へは進めない）
 
 const V = (x, y, z) => [x, z, -y];
 
@@ -391,20 +391,42 @@ export function buildWorld(data, mallBuf, scene) {
     if (f.u) continue; // 階段の下の端は吹き抜け
     const h = z + (f.k === 'plat' ? 4.4 : lv.ceil);
     for (const [a, b, c] of cut(tris, rampRects.filter((r) => r.la === f.l).map((r) => r.low))) {
-      if (f.k === 'plat') push('roof', V(a[0], a[1], h), V(c[0], c[1], h), V(b[0], b[1], h));
-      else {
-        push('ceiling', V(a[0], a[1], h), V(c[0], c[1], h), V(b[0], b[1], h)); // 下から見える向き
-        if (f.l === -1) push('ceilTop', V(a[0], a[1], h + 0.02), V(b[0], b[1], h + 0.02), V(c[0], c[1], h + 0.02));
+      push(f.k === 'plat' ? 'roof' : 'ceiling', V(a[0], a[1], h), V(c[0], c[1], h), V(b[0], b[1], h)); // 下から見える向き
+      // 上から見た面も描く（上の階の床の穴から、下の階が透けて見えていた。下からは天井で上が見えないのと合わせる）
+      push('ceilTop', V(a[0], a[1], h + 0.02), V(b[0], b[1], h + 0.02), V(c[0], c[1], h + 0.02));
+    }
+  }
+
+  // 階段・エスカレーターの降り口の床: 上下の端の先 1.8 m・坂の幅（構内地図の床の穴が降り口まで広く取られていて、上りきった先に 1.5 m を超える
+  // 床の無いすき間があった。東京の八重洲側のエスカレーター）。同じ高さの床と重なる所は、ちらつかないようにわずかに上げる
+  for (const r of data.ramps) {
+    const len = Math.hypot(r.b[0] - r.a[0], r.b[1] - r.a[1]), ux = (r.b[0] - r.a[0]) / len, uy = (r.b[1] - r.a[1]) / len, nx = (-uy * r.w) / 2, ny = (ux * r.w) / 2;
+    for (const [p, dir, z] of [[r.b, 1, r.b[2]], [r.a, -1, r.a[2]]]) {
+      const ex = p[0] + ux * dir * 1.8, ey = p[1] + uy * dir * 1.8, zz = z + 0.004;
+      const q = [[p[0] - nx, p[1] - ny], [p[0] + nx, p[1] + ny], [ex + nx, ey + ny], [ex - nx, ey - ny]];
+      for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+        phys.addFloor([...a, z], [...b, z], [...c, z]);
+        push('concourse', V(a[0], a[1], zz), V(b[0], b[1], zz), V(c[0], c[1], zz), V(a[0], a[1], zz), V(c[0], c[1], zz), V(b[0], b[1], zz)); // 表裏とも
       }
     }
   }
 
-  // 出口の外の床（改札口から街・隣の建物へ 8 m。改札口の点が面の外に数 m 離れていることがある）
-  for (const [x0, y0, x1, y1, nx, ny, l] of data.aprons || []) {
-    const z = lz(l), q = [[x0, y0], [x1, y1], [x1 + nx * 8, y1 + ny * 8], [x0 + nx * 8, y0 + ny * 8]];
+  // 床のすき間を埋める床（前処理で、両側 1 m 以内に高さの近い床があるすき間に作ったもの）
+  for (const [x0, y0, x1, y1, z] of data.gapFloors || []) {
+    const q = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
     for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
       phys.addFloor([...a, z], [...b, z], [...c, z]);
-      push('apron', V(a[0], a[1], z), V(c[0], c[1], z), V(b[0], b[1], z));
+      push('concourse', V(a[0], a[1], z), V(c[0], c[1], z), V(b[0], b[1], z), V(a[0], a[1], z), V(b[0], b[1], z), V(c[0], c[1], z)); // 表裏とも
+    }
+  }
+
+  // 出口の外の床（改札口から街・隣の建物へ 8 m。改札口の点が面の外に数 m 離れていることがある）
+  // 長さのあるものは、地下 1 階の JR の床と地下街の床のあいだのすき間を埋めるつなぎの床（構内の床の色）
+  for (const [x0, y0, x1, y1, nx, ny, l, len = 8] of data.aprons || []) {
+    const z = lz(l), q = [[x0, y0], [x1, y1], [x1 + nx * len, y1 + ny * len], [x0 + nx * len, y0 + ny * len]];
+    for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+      phys.addFloor([...a, z], [...b, z], [...c, z]);
+      push(len < 8 ? 'concourse' : 'apron', V(a[0], a[1], z), V(c[0], c[1], z), V(b[0], b[1], z));
     }
   }
 
@@ -527,6 +549,36 @@ export function buildWorld(data, mallBuf, scene) {
 
   // 改札機
   addGateRow(scene, phys, data.gates.map(([cx, cy, l, len, wid, ang]) => [cx, cy, lz(l), len, wid, ang]));
+
+  // コインロッカー（高さ 1.8 m・奥行き 0.5 m の箱。正面は扉の並び。幅 0.4 m の 1 列の模様をくり返す）。当たりは箱のまわり 4 本の線
+  if ((data.lockers || []).length) {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 288;
+    const g = c.getContext('2d');
+    g.fillStyle = '#7d8790'; g.fillRect(0, 0, 64, 288);
+    const rows = [0, 46, 92, 138, 196, 270]; // 上は小さな扉、下は大きな扉
+    for (let i = 0; i < rows.length - 1; i++) {
+      const y0 = rows[i] + 3, y1 = rows[i + 1] - 3;
+      g.fillStyle = '#c9d2da'; g.fillRect(4, y0, 56, y1 - y0);
+      g.fillStyle = '#2b3138'; g.fillRect(44, y0 + 8, 10, 14); // 鍵・番号の板
+      g.fillStyle = '#e8b04a'; g.fillRect(46, y0 + 10, 6, 4);
+    }
+    g.fillStyle = '#5b636b'; g.fillRect(0, 270, 64, 18); // 台
+    const front = new THREE.CanvasTexture(c);
+    front.colorSpace = THREE.SRGBColorSpace; front.wrapS = THREE.RepeatWrapping;
+    const body = new THREE.MeshLambertMaterial({ color: '#8a949d' });
+    for (const [cx, cy, l, w, ang] of data.lockers) {
+      const z = lz(l), nx = Math.cos(ang), ny = Math.sin(ang), ux = -ny, uy = nx;
+      const map = front.clone(); map.needsUpdate = true; map.repeat.set(Math.max(1, Math.round(w / 0.4)), 1);
+      const fm = new THREE.MeshLambertMaterial({ map });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(w, 1.8, 0.5), [body, body, body, body, fm, body]); // +z の面が正面
+      box.position.set(...V(cx, cy, z + 0.9));
+      box.rotation.y = Math.atan2(nx, -ny);
+      scene.add(box);
+      const p = (a, b) => [cx + ux * a + nx * b, cy + uy * a + ny * b];
+      const q = [p(-w / 2, -0.25), p(w / 2, -0.25), p(w / 2, 0.25), p(-w / 2, 0.25)];
+      for (let i = 0; i < 4; i++) { const [a, b] = [q[i], q[(i + 1) % 4]]; phys.addSeg(a[0], a[1], b[0], b[1], z, z + 1.8); }
+    }
+  }
 
   // 地下街（PLATEAU）。地下街の無い駅は、どれも空
   const L = data.mall ? data.mall.layout : {};
