@@ -120,7 +120,6 @@ function materials() {
     elevWall: lam({ map: panelTexture('#b7bec5', '#8e969e', 0.9), emissive: '#30363c', side: THREE.DoubleSide }), // ステンレスのエレベーター
     door: lam({ map: doorTexture(), side: THREE.DoubleSide }),                 // 駅務などの入れない扉
     shopDoor: new THREE.MeshBasicMaterial({ color: '#fff4dc', side: THREE.DoubleSide }), // 店のガラスの扉（中の明かり）
-    shopDoorTop: new THREE.MeshBasicMaterial({ color: '#c0392b', side: THREE.DoubleSide }),
     shop: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     glass: new THREE.MeshLambertMaterial({ color: '#9fc6d6', transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
     frame: lam({ color: '#7d858c' }),
@@ -456,9 +455,22 @@ export function buildWorld(data, mallBuf, scene) {
     const L = Math.hypot(bx - ax, by - ay), v = key === 'wall' ? (z1 - z0) / 3 : key === 'door' ? (z1 - z0) / 2.1 : z1 - z0;
     (uvs[key] = uvs[key] || []).push(0, 0, L, 0, L, v, 0, 0, L, v, 0, v);
   };
-  const SHOP = ['#ffe9c2', '#fff4dc', '#ffdcb8', '#e8f3ff', '#fff0f0', '#f2ffe8'];
-  const BAND = ['#c0392b', '#1f6fb2', '#2e8b57', '#d68910', '#6c3483', '#17202a', '#b03a2e'];
+  // 店先: 下は淡い色のガラス、上は看板の帯。色は店（店先の壁の右 0.3 m の店の面）ごとに 1 つ（壁の区切りごとに色を回していたので、
+  // 1 つの店の中で色が入れ替わり、派手に見えた）
+  const SHOP = ['#f4ead8', '#f8f2e6', '#efe4d4', '#e6edf3', '#f3eaea', '#ebf0e2'];
+  const BAND = ['#7a4a3a', '#3f5a74', '#4f6b4c', '#8a6a3e', '#5e4e6e', '#3a424c', '#7e3f3f'];
+  const shops = data.blocks.filter((b) => b.k === 'shop').map((b) => {
+    const r = b.r[0]; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < r.length; i += 2) { x0 = Math.min(x0, r[i]); x1 = Math.max(x1, r[i]); y0 = Math.min(y0, r[i + 1]); y1 = Math.max(y1, r[i + 1]); }
+    return { b, bb: [x0, y0, x1, y1], best: null };
+  });
+  const inFlat = (x, y, r) => { let s = false; for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) if ((r[i + 1] > y) !== (r[j + 1] > y) && x < ((r[j] - r[i]) * (y - r[i + 1])) / (r[j + 1] - r[i + 1]) + r[i]) s = !s; return s; };
+  const shopAt = (ax, ay, bx, by, l) => { // 店先の壁の右 0.3 m にある店の番号
+    const L = Math.hypot(bx - ax, by - ay) || 1, x = (ax + bx) / 2 + ((by - ay) / L) * 0.3, y = (ay + by) / 2 - ((bx - ax) / L) * 0.3;
+    return shops.findIndex((s) => s.b.l === l && x >= s.bb[0] && x <= s.bb[2] && y >= s.bb[1] && y <= s.bb[3] && inFlat(x, y, s.b.r[0]));
+  };
   let shopN = 0;
+  const shopColor = (j) => { const i = j >= 0 ? j : shops.length + shopN++; return [new THREE.Color(SHOP[i % SHOP.length]), new THREE.Color(BAND[(i * 3) % BAND.length])]; };
   for (const [ax, ay, bx, by, l, k] of data.walls) {
     const z = lz(l), ceil = data.levels[l].ceil;
     if (k === 'w' || k === 'f' || k === 'e') {
@@ -467,17 +479,20 @@ export function buildWorld(data, mallBuf, scene) {
     } else if (k === 'sd' || k === 'fd') {
       // 入れない扉（店はガラスの扉、駅務などは灰色の扉）。扉は 2.1 m まで、上は壁
       quad(k === 'sd' ? 'shopDoor' : 'door', ax, ay, bx, by, z, z + 2.1);
-      quad(k === 'sd' ? 'shopDoorTop' : 'staff', ax, ay, bx, by, z + 2.1, z + ceil);
+      if (k === 'sd') { // 店の扉の上は、その店の帯の色
+        const band = shopColor(shopAt(ax, ay, bx, by, l))[1];
+        quad('shop', ax, ay, bx, by, z + 2.1, z + ceil);
+        for (let i = 0; i < 6; i++) colors.push(band.r, band.g, band.b);
+      } else quad('staff', ax, ay, bx, by, z + 2.1, z + ceil);
       // 扉の枠（両側の縦の帯）
       const len = Math.hypot(bx - ax, by - ay), ux = (bx - ax) / len * 0.06, uy = (by - ay) / len * 0.06;
       quad('frame', ax, ay, ax + ux, ay + uy, z, z + 2.15);
       quad('frame', bx - ux, by - uy, bx, by, z, z + 2.15);
       phys.addSeg(ax, ay, bx, by, z, z + ceil);
     } else if (k === 's') {
-      // 店先: 下は明るいガラス、上は色の帯
-      const win = new THREE.Color(SHOP[shopN % SHOP.length]), band = new THREE.Color(BAND[(shopN * 3) % BAND.length]);
-      shopN++;
-      const top = z + Math.min(ceil, 2.9);
+      const j = shopAt(ax, ay, bx, by, l), [win, band] = shopColor(j);
+      const top = z + Math.min(ceil, 2.9), len = Math.hypot(bx - ax, by - ay);
+      if (j >= 0 && (!shops[j].best || len > shops[j].best.len)) shops[j].best = { ax, ay, bx, by, z, top, len, band };
       quad('shop', ax, ay, bx, by, z, z + 2.3);
       for (let i = 0; i < 6; i++) colors.push(win.r, win.g, win.b);
       quad('shop', ax, ay, bx, by, z + 2.3, top);
@@ -667,6 +682,30 @@ export function buildWorld(data, mallBuf, scene) {
   const lq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), axis), lm = new THREE.Matrix4(), ls = new THREE.Vector3(1, 1, 1);
   lights.forEach(([x, y, z], i) => { lm.compose(new THREE.Vector3(...V(x, y, z)), lq, ls); lamp.setMatrixAt(i, lm); });
   scene.add(lamp);
+
+  // 店の札: 店ごとにいちばん長い店先の帯の真ん中に、白い板に帯の色の文字（「店」、名前があればその名前、授乳室）。通路の側に 3 cm 浮かせる
+  const labelMat = {};
+  for (const s of shops) {
+    const t = s.b.n, w = s.best;
+    if (!t || !w || w.len < 0.8) continue;
+    const key = t + w.band.getHexString();
+    if (!labelMat[key]) {
+      const c = document.createElement('canvas'), g = c.getContext('2d'), font = 'bold 92px "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif';
+      g.font = font; c.width = Math.max(128, Math.ceil(g.measureText(t).width) + 56); c.height = 128;
+      g.fillStyle = '#fbf8f1'; g.beginPath(); g.roundRect(4, 4, c.width - 8, c.height - 8, 14); g.fill();
+      g.font = font; g.fillStyle = '#' + w.band.getHexString(); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, c.width / 2, 70);
+      const map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
+      labelMat[key] = { mat: new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false }), aspect: c.width / c.height };
+    }
+    const { mat, aspect } = labelMat[key];
+    const band = w.top - w.z - 2.3, h0 = band * 0.82, wid = Math.min(w.len - 0.2, h0 * aspect), h = wid / aspect;
+    const ux = (w.bx - w.ax) / w.len, uy = (w.by - w.ay) / w.len, nx = -uy, ny = ux; // n: 通路の側（店は右）
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(wid, h), mat);
+    m.position.set(...V((w.ax + w.bx) / 2 + nx * 0.03, (w.ay + w.by) / 2 + ny * 0.03, w.z + 2.3 + band / 2));
+    m.rotation.y = Math.atan2(nx, -ny);
+    m.name = 'shopLabel'; m.userData.text = t;
+    scene.add(m);
+  }
 
   // まとめて置く
   const UV = new Set(['concourse', 'platform', 'toilet', 'apron']);
