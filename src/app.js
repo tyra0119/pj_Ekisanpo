@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu6ad52';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu6ad52';
-import { addTrains } from './trains.js?v=mvu6ad52';
-import { routeSteps, stepLine } from './steps.js?v=mvu6ad52';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu6ixl0';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu6ixl0';
+import { addTrains } from './trains.js?v=mvu6ixl0';
+import { routeSteps, stepLine } from './steps.js?v=mvu6ixl0';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvu6ad52'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvu6ixl0'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -1882,11 +1882,29 @@ function drawCompass() {
   const SPAN = (75 * Math.PI) / 180, cx = w / 2, px = (w / 2 - 6) / SPAN;
   const rel = (b) => Math.atan2(Math.sin(b - me.yaw), Math.cos(b - me.yaw));
   g.textAlign = 'center'; g.textBaseline = 'middle';
+  // 帯の外の目印（左右の端に「◀ 名前」、近い方から 1 つ）の場所を先に決める。そこには目盛り・東西南北を描かない
+  // （端の名前に背景が無く、「北」が「サンシャインシティ ▶」に重なって読めなかった。スマホ実機）
+  const marks = (data.marks || []).map(([name, mx, my]) => [name, rel(Math.atan2(mx - me.x, my - me.y))]);
+  const used = [], side = { l: null, r: null };
+  for (const [name, a] of marks) if (Math.abs(a) > SPAN) { const k = a < 0 ? 'l' : 'r'; if (!side[k] || Math.abs(a) < Math.abs(side[k][1])) side[k] = [name, a]; }
+  // ただし帯に東西南北が 1 つしか無く、それが端の名前にかかるときは、東西南北を残して端の名前を出さない（方角が分からなくならないように）
+  g.font = '11px system-ui, sans-serif';
+  const cards = [0, 90, 180, 270].map((d) => cx + rel((d * Math.PI) / 180) * px).filter((x) => Math.abs(x - cx) <= SPAN * px);
+  for (const k of ['l', 'r']) {
+    if (!side[k]) continue;
+    side[k][2] = k === 'l' ? `◀ ${side[k][0]}` : `${side[k][0]} ▶`;
+    const tw = g.measureText(side[k][2]).width + 14, zone = k === 'l' ? [0, tw] : [w - tw, w];
+    const hit = (x) => x + 7 > zone[0] && x - 7 < zone[1];
+    if (cards.some(hit) && !cards.some((x) => !hit(x))) { side[k] = null; continue; }
+    used.push(zone);
+  }
+  const edge = used.slice();
   // 目盛り（15° ごと）と東西南北
   for (let d = 0; d < 360; d += 15) {
     const a = rel((d * Math.PI) / 180);
     if (Math.abs(a) > SPAN) continue;
     const x = cx + a * px, card = d % 90 === 0;
+    if (edge.some(([l, r]) => x + (card ? 7 : 1) > l && x - (card ? 7 : 1) < r)) continue;
     if (card) {
       g.font = 'bold 13px system-ui, sans-serif';
       g.fillStyle = d === 0 ? '#ff6b5e' : '#fff';
@@ -1896,14 +1914,10 @@ function drawCompass() {
       g.beginPath(); g.moveTo(x, h - (d % 45 === 0 ? 9 : 6)); g.lineTo(x, h); g.stroke();
     }
   }
-  // 目印: 帯の外のものは左右の端に「◀ 名前」（近い方から 1 つ）。先に描いて場所を取り、帯の中の名前の札はそこと重ならないように
-  // （札どうしが重なるときは、一覧の先のものを残す）
-  const marks = (data.marks || []).map(([name, mx, my]) => [name, rel(Math.atan2(mx - me.x, my - me.y))]);
-  const used = [], side = { l: null, r: null };
-  for (const [name, a] of marks) if (Math.abs(a) > SPAN) { const k = a < 0 ? 'l' : 'r'; if (!side[k] || Math.abs(a) < Math.abs(side[k][1])) side[k] = [name, a]; }
+  // 目印: 帯の外のものは左右の端に。帯の中の名前の札はそこと重ならないように（札どうしが重なるときは、一覧の先のものを残す）
   g.font = '11px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,0.85)';
-  if (side.l) { const t = `◀ ${side.l[0]}`; g.textAlign = 'left'; g.fillText(t, 8, h / 2 + 0.5); used.push([0, g.measureText(t).width + 14]); }
-  if (side.r) { const t = `${side.r[0]} ▶`; g.textAlign = 'right'; g.fillText(t, w - 8, h / 2 + 0.5); used.push([w - g.measureText(t).width - 14, w]); }
+  if (side.l) { g.textAlign = 'left'; g.fillText(side.l[2], 8, h / 2 + 0.5); }
+  if (side.r) { g.textAlign = 'right'; g.fillText(side.r[2], w - 8, h / 2 + 0.5); }
   g.font = 'bold 11px system-ui, sans-serif'; g.textAlign = 'center';
   for (const [name, a] of marks) {
     if (Math.abs(a) > SPAN) continue;
