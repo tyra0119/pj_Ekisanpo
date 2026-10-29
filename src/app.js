@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt5ruq4';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt5ruq4';
-import { addTrains } from './trains.js?v=mvt5ruq4';
-import { routeSteps, stepLine } from './steps.js?v=mvt5ruq4';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt6l2zx';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt6l2zx';
+import { addTrains } from './trains.js?v=mvt6l2zx';
+import { routeSteps, stepLine } from './steps.js?v=mvt6l2zx';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt5ruq4'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvt6l2zx'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -746,6 +746,7 @@ function updateBeacon(now) {
   let p = null;
   if (nav.dest && nav.pts) { const e = nav.pts[nav.pts.length - 1]; p = [e.x, e.y, phys.groundAt(e.x, e.y, LV[e.l].z) ?? LV[e.l].z]; }
   else if (replay.samples) { const e = replay.samples[replay.samples.length - 1]; p = [e.x, e.y, e.z]; }
+  else if (herePin) p = [herePin.x, herePin.y, phys.groundAt(herePin.x, herePin.y, LV[herePin.level].z) ?? LV[herePin.level].z]; // 「ここにいます」の相手
   beacon.visible = !!p;
   if (!p) return;
   beacon.position.copy(V3(p[0], p[1], p[2]));
@@ -774,6 +775,8 @@ function drawChevrons() {
   chevs.count = k;
   chevs.instanceMatrix.needsUpdate = true;
 }
+// 案内の札の下の端を CSS に渡す（スマホでは駅名・ボタンをその下に出す）
+new ResizeObserver(() => { const g = $('guide'); if (!g.hidden) document.body.style.setProperty('--guideB', `${Math.round(g.getBoundingClientRect().bottom)}px`); }).observe($('guide'));
 function setDest(d) {
   nav.dest = d; nav.arrived = false; nav.lastCalc = 0; nav.at = null;
   $('guide').hidden = !d;
@@ -917,6 +920,16 @@ function openDest(mode = destMode) {
       b.className = 'item' + (pend[destMode] === d ? ' sel' : ''); b.type = 'button';
       b.innerHTML = html + (tag ? `<span class="tag">${tag}</span>` : '');
       b.onclick = () => {
+        // 迷ったら: 見えている看板を選んだら、すぐそこに立つ（'here' は続けて相手のいる場所への案内）
+        if (whereMode && destMode === 'from') {
+          const mode = whereMode;
+          setWhere(null);
+          $('destPanel').hidden = true;
+          standToSee(d);
+          if (mode === 'here' && herePin) { if (jump) jump.after = () => setDest(herePin); else setDest(herePin); }
+          else if (jump) jump.msg = `${d.name}のそばに立ちました`;
+          return;
+        }
         pend[destMode] = d;
         // 出発を選んだら行き先の一覧へ。行き先を選んだらそのまま（出発を変えるときは上の行を押す）
         openDest('to');
@@ -925,7 +938,7 @@ function openDest(mode = destMode) {
       list.append(b);
     }
   };
-  if (mode === 'from' && !q) { // いまいる所（移動しない）
+  if (mode === 'from' && !q && !whereMode) { // いまいる所（移動しない）
     const b = document.createElement('button');
     b.className = 'item' + (!pend.from ? ' sel' : ''); b.type = 'button';
     b.innerHTML = '<span class="dot" style="background:#1a73e8">今</span>いまいる所<span class="tag">移動しない</span>';
@@ -956,9 +969,91 @@ function openDest(mode = destMode) {
 }
 $('destBtn').onclick = () => {
   $('destFilter').value = '';
+  setWhere(null);
   pend.from = null; pend.to = nav.dest; // 出発はいまいる所、行き先はいまの案内
   openDest('to');
 };
+// ---------- 迷ったら: いまどこ？（見えている看板から現在地）・ここにいます（今いる所をリンクで送る） ----------
+// whereMode: 'where' は見えている看板を選ぶとすぐそこに立つ、'here' は選んだ所から相手のいる場所（herePin）へ案内する
+let whereMode = null, herePin = null;
+function setWhere(mode, hint = '') {
+  whereMode = mode;
+  $('destHint').hidden = !mode;
+  $('destHint').textContent = hint;
+  $('destPanel').classList.toggle('where', !!mode); // 出発・行き先の 2 行と「案内を始める」を隠す
+  $('destTitle').textContent = mode === 'where' ? 'いまどこ？' : mode === 'here' ? 'あなたはどこ？' : '出発・行き先';
+}
+function openWhere(mode, hint) {
+  $('destFilter').value = '';
+  pend.from = null; pend.to = mode === 'here' ? herePin : nav.dest;
+  setWhere(mode, hint);
+  openDest('from');
+}
+$('lostBtn').onclick = () => { $('lostPanel').hidden = false; };
+$('lostClose').onclick = () => { $('lostPanel').hidden = true; };
+$('lostPanel').onclick = (e) => { if (e.target === $('lostPanel')) $('lostPanel').hidden = true; };
+$('lostWhere').onclick = () => { $('lostPanel').hidden = true; openWhere('where', '近くに見える看板（出口の番号・改札・番線・トイレ・コインロッカーなど）を選ぶと、その場所に立ちます'); };
+// 看板が見える所に立つ: 看板から 5 m（無ければ 3・7 m）離れた歩ける所のうち、あいだに壁が無く、出発地に降りる点に近い所で、看板の方を向く
+// （看板の真下に立つと、看板が画面いっぱいになった）
+// p から看板の下（1 m 手前まで）へ、壁に当たらずに歩いて近づけるか（JR の壁も地下街の壁も当たり判定で見る）
+function walkTo(p, S) {
+  let [x, y, z] = p;
+  for (let k = 0; k < 60 && Math.hypot(S[0] - x, S[1] - y) > 1; k++) {
+    const L = Math.hypot(S[0] - x, S[1] - y), [cx, cy] = phys.collide(x + ((S[0] - x) / L) * 0.25, y + ((S[1] - y) / L) * 0.25, z);
+    if (Math.hypot(cx - x, cy - y) < 0.15) return false;
+    x = cx; y = cy; z = phys.groundAt(x, y, z) ?? z;
+  }
+  return true;
+}
+function standToSee(d) {
+  const S = d.t === 'gate' ? d.pts[0] : d.t === 'exit' ? d.sign || [d.x, d.y] : d.t === 'fac' ? d.sign : d.t === 'toilet' && d.door ? d.door : [d.x, d.y];
+  const p0 = startPoint(d);
+  let best = null;
+  for (const r of [5, 3, 7]) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2, cx = S[0] + Math.sin(a) * r, cy = S[1] + Math.cos(a) * r;
+      const p = landingAt(cx, cy, d.level);
+      if (!p || Math.hypot(p[0] - cx, p[1] - cy) > 1 || levelOf(p[2]) !== d.level) continue;
+      if (!walkTo(p, S)) continue;
+      const score = Math.hypot(p[0] - p0[0], p[1] - p0[1]);
+      if (!best || score < best.score) best = { p, score };
+    }
+    if (best) break;
+  }
+  if (!best) { startAt(d); return; }
+  startName = d.name;
+  jumpTo(best.p[0], best.p[1], d.level);
+  if (jump) jump.yaw = Math.atan2(S[0] - best.p[0], S[1] - best.p[1]);
+}
+// いま見ている所の言葉（近くの目印・階・改札の内外）
+const hereWords = (x, y, l) => { const lm = stepHelp.landmarkAt(x, y, l, 15); return `${lm ? `${lm}のそば・` : ''}${LV[l].name}・${fareSide(x, y, l) === 'in' ? '改札内' : '改札外'}`; };
+$('lostHere').onclick = async () => {
+  $('lostPanel').hidden = true;
+  const l = levelOf(me.z), deg = Math.round(((me.yaw * 180) / Math.PI + 360) % 360);
+  const url = `${location.origin}${location.pathname}?st=${ST.key}#here=${me.x.toFixed(1)},${me.y.toFixed(1)},${l},${deg}`;
+  const text = `${data.station}駅で、ここにいます（${hereWords(me.x, me.y, l)}）。開くと場所と、そこまでの道が分かります。`;
+  if (navigator.share) { try { await navigator.share({ title: 'エキさんぽ: ここにいます', text, url }); return; } catch { /* 取り消し */ } }
+  copy(url);
+};
+// 「ここにいます」のリンクを開いたとき: 相手のいる場所に光の柱を立て、景色を見るか、そこまでの案内を選ぶ
+function openHere() {
+  const m = location.hash.match(/^#here=(-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?\d+)$/);
+  if (!m) return false;
+  const [x, y, l, deg] = m.slice(1).map(Number);
+  if (!LV[l]) return false;
+  herePin = makePin(x, y, l, '相手のいる場所');
+  herePin.yaw = (deg * Math.PI) / 180;
+  $('hereInfo').textContent = hereWords(x, y, l);
+  $('herePanel').hidden = false;
+  return true;
+}
+$('hereLook').onclick = () => {
+  $('herePanel').hidden = true;
+  jumpTo(herePin.x, herePin.y, herePin.level);
+  if (jump) { jump.yaw = herePin.yaw; jump.msg = '相手のいる場所です（相手が見ている向き）'; }
+};
+$('hereRoute').onclick = () => { $('herePanel').hidden = true; openWhere('here', 'あなたがいる所の近くに見える看板を選ぶと、相手のいる場所までの道を案内します'); };
+$('hereClose').onclick = () => { $('herePanel').hidden = true; };
 $('destFilter').addEventListener('input', () => openDest(destMode));
 for (const b of document.querySelectorAll('#routeRows .rrow')) b.onclick = () => { $('destFilter').value = ''; openDest(b.dataset.m); };
 $('goBtn').onclick = () => {
@@ -980,8 +1075,8 @@ $('gShare').onclick = async () => {
   if (navigator.share) { try { await navigator.share({ title: 'エキさんぽの案内', text: `${startName ? startName + ' から ' : ''}${nav.dest.name} への案内`, url }); return; } catch { /* 取り消し */ } }
   copy(url);
 };
-$('destClose').onclick = () => { $('destPanel').hidden = true; };
-$('destPanel').onclick = (e) => { if (e.target === $('destPanel')) $('destPanel').hidden = true; };
+$('destClose').onclick = () => { $('destPanel').hidden = true; setWhere(null); };
+$('destPanel').onclick = (e) => { if (e.target === $('destPanel')) { $('destPanel').hidden = true; setWhere(null); } };
 $('gClose').onclick = () => setDest(null);
 
 let toastTimer = 0;
@@ -1112,7 +1207,7 @@ function drawMini() {
     mg.fillStyle = d.t === 'toilet' || d.t === 'fac' ? '#fff' : '#111';
     mg.fillText(t, x, y);
   }
-  const goal = nav.dest ? [nav.dest.x, nav.dest.y, true] : replay.samples ? (() => { const e = replay.samples[replay.samples.length - 1]; return [e.x, e.y, String(levelOf(e.z)) === pl]; })() : null; // 足あとの終わりも、その階を出しているとき
+  const goal = nav.dest ? [nav.dest.x, nav.dest.y, true] : replay.samples ? (() => { const e = replay.samples[replay.samples.length - 1]; return [e.x, e.y, String(levelOf(e.z)) === pl]; })() : herePin ? [herePin.x, herePin.y, String(herePin.level) === pl] : null; // 足あとの終わり・「ここにいます」の相手も、その階を出しているとき
   if (goal && goal[2]) {
     const [x, y] = W2S(goal[0], goal[1]);
     mg.fillStyle = '#e8453c'; mg.beginPath(); mg.arc(x, y - 9, 6, 0, Math.PI * 2); mg.moveTo(x - 5, y - 6); mg.lineTo(x, y); mg.lineTo(x + 5, y - 6); mg.fill();
@@ -1208,6 +1303,12 @@ const mEnd = (e) => {
     tap = null;
   }
 };
+// 地図の上の場所を行き先にする（地下 1 階はマス目で、ほかの階は近い 3 つの経路網の点からその場所まで）
+function makePin(x, y, l, name) {
+  const d = { t: 'pin', name, x, y, level: l };
+  if (l !== GL) d.nodes = GN.map((g, i) => [i, g]).filter(([, g]) => g[2] === l).sort((a, b) => Math.hypot(a[1][0] - x, a[1][1] - y) - Math.hypot(b[1][0] - x, b[1][1] - y)).slice(0, 3).map(([i]) => i);
+  return d;
+}
 // 地図の上の小さな札: 行き先にする・ここへ移動。d が無いときは地図で選んだ場所（歩ける所に寄せる）
 let miniPopAt = null;
 function openMiniPop(sx, sy, d) {
@@ -1216,8 +1317,7 @@ function openMiniPop(sx, sy, d) {
   if (!target) {
     const to = landingAt(...S2W(sx, sy), l);
     if (!to) { toast('そこへは行けません'); return; }
-    target = { t: 'pin', name: '地図で選んだ場所', x: to[0], y: to[1], level: l };
-    if (l !== GL) target.nodes = GN.map((g, i) => [i, g]).filter(([, g]) => g[2] === l).sort((a, b) => Math.hypot(a[1][0] - to[0], a[1][1] - to[1]) - Math.hypot(b[1][0] - to[0], b[1][1] - to[1])).slice(0, 3).map(([i]) => i);
+    target = makePin(to[0], to[1], l, '地図で選んだ場所');
   }
   miniPopAt = target;
   $('mpName').textContent = target.name + (target.t === 'plat' && target.dir ? ` ${target.dir}` : '');
@@ -1560,6 +1660,7 @@ function updateReplayGuide() {
   $('arrow').style.transform = `rotate(${((Math.atan2(b.x - me.x, b.y - me.y) - me.yaw) * 180) / Math.PI}deg)`;
 }
 const replaying = await loadReplay();
+const hereOpen = !replaying && openHere();
 // URL の ?from=出発地&to=行き先（名前。「5番線」のように先頭だけでもよい）
 if (!replaying) {
   const q = new URLSearchParams(location.search);
@@ -1577,7 +1678,7 @@ if (!replaying) {
 
 // ---------- はじめの説明 ----------
 const seen = (() => { try { return localStorage.getItem('ekisanpo.help') === '1'; } catch { return false; } })();
-$('help').hidden = seen || replaying;
+$('help').hidden = seen || replaying || hereOpen;
 $('helpOk').onclick = () => { $('help').hidden = true; try { localStorage.setItem('ekisanpo.help', '1'); } catch { /* 保存できなくてもよい */ } };
 
 // ---------- 方角の帯 ----------

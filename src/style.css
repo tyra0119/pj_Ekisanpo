@@ -159,8 +159,9 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
   .brand span { display: none; }
   /* 案内中は、案内の札を方角の帯のすぐ下に横いっぱいに出し、駅名・ボタンはその下へ（札が左上のボタンに重なっていた） */
   #guide { left: 12px; right: 12px; transform: none; max-width: none; }
-  body:has(#guide:not([hidden])) #top { top: calc(max(6px, env(safe-area-inset-top)) + 112px); }
-  body:has(#guide:not([hidden])) #leftBtns { top: calc(max(6px, env(safe-area-inset-top)) + 158px); }
+  /* --guideB: 案内の札の下の端（札の 3 行目が折り返して札が伸びても重ならないように、app.js で札の大きさに合わせる） */
+  body:has(#guide:not([hidden])) #top { top: calc(var(--guideB, 106px) + 6px); }
+  body:has(#guide:not([hidden])) #leftBtns { top: calc(var(--guideB, 106px) + 52px); }
 }
 /* スマホの横向きなど高さの低い画面: 案内の札は右に寄せて左上の駅名・階・改札内外を隠さない。小さな地図とボタンはスマホの縦向きと同じ大きさに（実機の横向きで確かめた） */
 @media (max-height: 500px) and (min-width: 601px) {
@@ -194,3 +195,14 @@ body.touch .pc, body:not(.touch) .touch { display: none; }
 #miniPop #mpName { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #miniPop .row { display: flex; gap: 6px; margin-top: 6px; }
 #miniPop .row .btn { flex: 1; padding: 7px 6px; font-size: 13px; }
+/* 迷ったら（いまどこ？・ここにいます）と、ここにいますのリンクを開いたとき */
+#lostBtn { background: #fff4e0; color: #9a5800; }
+.sheetWrap { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: grid; place-items: end center; z-index: 10; }
+.sheetWrap[hidden] { display: none; }
+.bigItem { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 12px 14px; margin: 8px 0; color: inherit; }
+.bigItem b { display: block; font-size: 16px; }
+.bigItem small { display: block; color: var(--sub); font-size: 13px; margin-top: 2px; }
+.hereInfo { font-size: 17px; font-weight: 800; margin: 4px 0; }
+.btn.wide { display: block; width: 100%; margin-top: 8px; }
+.destHint { background: #fff4e0; color: #7a4600; border-radius: 8px; padding: 8px 10px; margin: 4px 0 6px; }
+#destPanel.where #routeRows, #destPanel.where #goBtn { display: none; }
