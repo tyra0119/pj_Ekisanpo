@@ -78,6 +78,7 @@ body.miniBig #dpad, body.miniBig #stick { visibility: hidden; }
 .floorPick button.on.me::after { background: #fff; }
 #mLocate.on svg circle:first-child { fill: #1a73e8; }
 #mLocate:not(.on) { color: #888; }
+#mLocate.head { background: #d2e3fc; }
 
 #elev { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); padding: 10px; display: flex; gap: 8px; align-items: center; }
 #elev[hidden] { display: none; }

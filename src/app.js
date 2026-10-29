@@ -2,15 +2,15 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt06m0t';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt06m0t';
-import { addTrains } from './trains.js?v=mvt06m0t';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt0uq66';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt0uq66';
+import { addTrains } from './trains.js?v=mvt0uq66';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt06m0t'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvt0uq66'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -887,7 +887,7 @@ function updateElev() {
 
 // ---------- 小さな地図 ----------
 // floor: 地図に出している階（null なら自分のいる階）
-const mini = { cx: me.x, cy: me.y, s: 1.6, rot: 0, follow: true, floor: null };
+const mini = { cx: me.x, cy: me.y, s: 1.6, rot: 0, follow: true, head: false, floor: null }; // head: 進む向きを上に（現在地のボタンをもう一度押す）
 const mcv = $('miniCv'), mg = mcv.getContext('2d');
 const paths = {}; // 階ごとの Path2D
 for (const l of Object.keys(LV)) {
@@ -920,6 +920,7 @@ const S2W = (sx, sy) => {
 };
 function drawMini() {
   if (mini.follow) { mini.cx = me.x; mini.cy = me.y; }
+  if (mini.follow && mini.head) mini.rot = me.yaw;
   const W = mcv.clientWidth, H = mcv.clientHeight, dpr = devicePixelRatio;
   const c = Math.cos(mini.rot), s = Math.sin(mini.rot), k = mini.s;
   mg.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -996,6 +997,7 @@ function drawMini() {
   for (const b of floorBtns) { b.classList.toggle('on', b.dataset.l === pl); b.classList.toggle('me', b.dataset.l === cur); }
   $('needle').setAttribute('transform', `rotate(${(-mini.rot * 180) / Math.PI} 12 12)`);
   $('mLocate').classList.toggle('on', mini.follow);
+  $('mLocate').classList.toggle('head', mini.follow && mini.head);
 }
 // 地図の操作（Google マップと同じ: 左ドラッグ・指 1 本で移動、右ドラッグで回転、ホイールで拡大・縮小、2 本指でひねる・広げる・動かす）
 const mp = new Map();
@@ -1036,7 +1038,7 @@ mcv.addEventListener('pointermove', (e) => {
     p.x = tap.x; p.y = tap.y;
   }
   if (mp.size === 1) {
-    mini.follow = false;
+    mini.follow = false; mini.head = false;
     if (p.btn === 2) rotateAt(mcv.clientWidth / 2, mcv.clientHeight / 2, (x - p.x) * 0.01);
     else panBy(x - p.x, y - p.y);
   } else if (mp.size === 2) {
@@ -1044,7 +1046,7 @@ mcv.addEventListener('pointermove', (e) => {
     const ox = (p.x + q.x) / 2, oy = (p.y + q.y) / 2, nx = (x + q.x) / 2, ny = (y + q.y) / 2;
     const d0 = Math.hypot(p.x - q.x, p.y - q.y), d1 = Math.hypot(x - q.x, y - q.y);
     const a0 = Math.atan2(p.y - q.y, p.x - q.x), a1 = Math.atan2(y - q.y, x - q.x);
-    mini.follow = false;
+    mini.follow = false; mini.head = false;
     panBy(nx - ox, ny - oy);
     if (d0 > 10) zoomAt(nx, ny, d1 / d0);
     rotateAt(nx, ny, -(a1 - a0));
@@ -1062,8 +1064,12 @@ mcv.addEventListener('pointerup', mEnd);
 mcv.addEventListener('pointercancel', mEnd);
 mcv.addEventListener('contextmenu', (e) => e.preventDefault());
 mcv.addEventListener('wheel', (e) => { e.preventDefault(); const [x, y] = local(e); zoomAt(x, y, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
-$('mCompass').onclick = () => { mini.rot = 0; };
-$('mLocate').onclick = () => { mini.follow = true; mini.floor = null; };
+$('mCompass').onclick = () => { mini.rot = 0; mini.head = false; };
+// 現在地: 1 回目で自分を真ん中に、自分を追っているときにもう一度押すと進む向きを上に（Google マップと同じ）。もう一度で北を上に戻す
+$('mLocate').onclick = () => {
+  if (mini.follow && mini.floor == null) { mini.head = !mini.head; if (!mini.head) mini.rot = 0; }
+  mini.follow = true; mini.floor = null;
+};
 // 地図を大きく・小さく（地図の右上のボタン）
 const BIG_ICON = $('mBig').innerHTML, SMALL_ICON = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="#444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 $('mBig').onclick = () => {
