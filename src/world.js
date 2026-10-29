@@ -411,6 +411,12 @@ export function buildWorld(data, mallBuf, scene) {
     }
   }
 
+  // 下がり壁: 地下街とつながる境目で、JR の天井と地下街の天井の高さが違うあいだをふさぐ（見た目だけ）
+  for (const [x0, y0, x1, y1, z0, z1] of data.bulkheads || []) {
+    const q = [[x0, y0, z0], [x1, y1, z0], [x1, y1, z1], [x0, y0, z1]];
+    for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) push('ceiling', V(...a), V(...b), V(...c), V(...a), V(...c), V(...b)); // 表裏とも
+  }
+
   // JR の面と地下街の床の高さの食い違い（0.8〜1.6 m）をつなぐ 2.5 m の坂。地下街が高ければ JR の床の上（内側）、低ければ地下街の床の上（外側）に
   for (const [x0, y0, x1, y1, nx, ny, l, zm] of data.slopes || []) {
     const z = lz(l), up = zm > z, d = up ? -2.5 : 2.5;
