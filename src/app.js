@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt9swl7';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt9swl7';
-import { addTrains } from './trains.js?v=mvt9swl7';
-import { routeSteps, stepLine } from './steps.js?v=mvt9swl7';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvta9zt8';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvta9zt8';
+import { addTrains } from './trains.js?v=mvta9zt8';
+import { routeSteps, stepLine } from './steps.js?v=mvta9zt8';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt9swl7'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvta9zt8'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -151,7 +151,7 @@ for (const d of data.dest) {
   }
   // 地下街: 出口は黄色、ほかの会社の改札は薄紫、お店・地下街は白い小さな札（通路から遠いものは置かない）
   if (d.t === 'exit' || d.t === 'ogate') { const s = sign(d.name, { bg: d.t === 'exit' ? '#f5c400' : '#e4d8f3' }); s.userData.key = d.name; addSign(s, ...(d.sign || [d.x, d.y]), d.sz ?? z + 2.25); } // sign・sz: 出口の階段の上り口の上（前処理で決めた所）
-  if (d.t === 'fac') { const [ch, col] = FAC_ICON[d.kind]; const s = sign(FAC_LABEL[d.kind], { bg: '#1c3f74', fg: '#fff', badge: ch, badgeColor: col, h: 0.42 }); s.userData.key = 'fac' + d.kind; addSign(s, d.sign[0], d.sign[1], z + 2.3); }
+  if (d.t === 'fac') { const [ch, col] = FAC_ICON[d.kind]; const s = sign(FAC_LABEL[d.kind], { bg: '#1c3f74', fg: '#fff', badge: ch, badgeColor: col, h: 0.42 }); s.userData.key = 'fac' + d.kind; addSign(s, d.sign[0], d.sign[1], d.sz ?? z + 2.3); } // sz: 売店・案内所の箱の上
   if (d.t === 'spot' && !d.near) { const s = sign(d.name, { bg: '#fff', h: 0.38 }); s.userData.key = d.name; addSign(s, d.x, d.y, d.sz ?? z + 2.15); }
   // 階段の上の端の近くには置かない（上ってくる途中で目の前に大きく出る）
   if (d.t === 'plat') for (const [x, y] of d.signs) { if (data.ramps.some((r) => r.lb === d.level && Math.hypot(r.b[0] - x, r.b[1] - y) < 6)) continue; const s = sign(`${d.name.replace(/^\S+番線 /, '')} ${d.dir || ''}`.trim(), { bg: '#fff', badge: String(d.code), badgeColor: d.color }); s.userData.key = d.name; addSign(s, x, y, z + 2.7); }

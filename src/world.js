@@ -612,39 +612,85 @@ export function buildWorld(data, mallBuf, scene) {
     }
   }
 
-  // 券売機の並び（1 台 幅 0.75 m・高さ 1.85 m・奥行き 0.6 m。正面は上の緑の帯「きっぷ」・画面・お金の口・きっぷの出口。1 台の模様をくり返す）。当たりは箱のまわり 4 本の線
-  if ((data.ticketMachines || []).length) {
-    const c = document.createElement('canvas'); c.width = 96; c.height = 236;
-    const g = c.getContext('2d');
-    g.fillStyle = '#e4e8eb'; g.fillRect(0, 0, 96, 236);
-    g.fillStyle = '#0b8f4d'; g.fillRect(0, 0, 96, 30); // 上の帯
-    g.fillStyle = '#fff'; g.font = 'bold 19px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('きっぷ', 48, 16);
-    g.fillStyle = '#2b3138'; g.fillRect(12, 48, 72, 56); // 画面のふち
-    g.fillStyle = '#4f8fd6'; g.fillRect(16, 52, 64, 48); // 画面
-    g.fillStyle = '#d7e8fa'; for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) g.fillRect(20 + j * 30, 56 + i * 15, 26, 11); // 画面のボタン
-    g.fillStyle = '#c9ced3'; g.fillRect(8, 104, 80, 14); // 画面の下の台
-    g.fillStyle = '#2b3138';
-    g.fillRect(14, 126, 18, 5); // お金を入れる口
-    g.fillRect(48, 126, 34, 5); // お札を入れる口
-    g.fillRect(14, 140, 14, 14); // IC カードを置く所
-    g.fillStyle = '#e8b04a'; g.fillRect(17, 143, 8, 8);
-    g.fillStyle = '#2b3138'; g.fillRect(18, 176, 60, 14); // きっぷ・おつりの出口
-    g.fillStyle = '#9aa2aa'; g.fillRect(0, 222, 96, 14); // 台
-    g.fillStyle = '#b9c0c6'; g.fillRect(0, 30, 2, 192); g.fillRect(94, 30, 2, 192); // となりの台とのさかい
-    const front = new THREE.CanvasTexture(c);
-    front.colorSpace = THREE.SRGBColorSpace; front.wrapS = THREE.RepeatWrapping;
-    const body = new THREE.MeshLambertMaterial({ color: '#cfd5da' });
-    for (const [cx, cy, l, n, ang] of data.ticketMachines) {
-      const z = lz(l), w = n * 0.75, nx = Math.cos(ang), ny = Math.sin(ang), ux = -ny, uy = nx;
-      const map = front.clone(); map.needsUpdate = true; map.repeat.set(n, 1);
+  // 機械・カウンターの並び（前処理の machines。1 台の模様をくり返す）。当たりは箱のまわり 4 本の線
+  // 券売機・精算機・ATM・両替機: 上の帯（色と文字）・画面・お金の口・出口。売店: 赤い帯と品物の棚とカウンター。案内所: 青い帯とガラス窓とカウンター
+  if ((data.machines || []).length) {
+    const KIND = {
+      ticket: { w: 0.75, d: 0.6, h: 1.85, band: '#0b8f4d', text: 'きっぷ', fg: '#fff' },
+      fare: { w: 0.75, d: 0.6, h: 1.85, band: '#f5c400', text: '精算', fg: '#111' },
+      atm: { w: 0.9, d: 0.7, h: 1.7, band: '#1f6fd1', text: 'ATM', fg: '#fff' },
+      exchange: { w: 0.75, d: 0.6, h: 1.7, band: '#c46a2b', text: '両替', fg: '#fff' },
+      kiosk: { w: 2.8, d: 1.2, h: 2.3, band: '#d0344a', text: '売店', fg: '#fff' },
+      info: { w: 2.4, d: 1.0, h: 2.3, band: '#1f6fd1', text: 'i  案内所', fg: '#fff' },
+    };
+    const PX = 128; // 1 m あたりの画素
+    const draw = (kind, k) => {
+      const W = Math.round(k.w * PX), H = Math.round(k.h * PX);
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d');
+      const band = Math.round(0.24 * PX);
+      g.fillStyle = '#e4e8eb'; g.fillRect(0, 0, W, H);
+      g.fillStyle = k.band; g.fillRect(0, 0, W, band); // 上の帯
+      g.fillStyle = k.fg; g.font = `bold ${Math.round(band * 0.62)}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(k.text, W / 2, band / 2 + 1);
+      const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x * W, y, w * W, h); }; // x・幅は幅に対する割合、y・高さは画素
+      if (kind === 'kiosk') {
+        g.fillStyle = '#f4f1ea'; g.fillRect(0, band, W, H - band);
+        const cols = ['#e8b04a', '#d0344a', '#2f8f5b', '#1f6fd1', '#f08c00', '#7a4fb0', '#e0e0e0'];
+        for (let r = 0; r < 4; r++) { // 品物の棚
+          const y = band + 10 + r * 30;
+          g.fillStyle = '#b9a98f'; g.fillRect(6, y + 24, W - 12, 4);
+          for (let x = 8, i = r; x < W - 14; x += 14, i += 3) { g.fillStyle = cols[i % cols.length]; g.fillRect(x, y + 4 + ((i * 7) % 6), 11, 20 - ((i * 7) % 6)); }
+        }
+        const top = H - Math.round(0.95 * PX); // カウンター（高さ 0.95 m）
+        g.fillStyle = '#8b5e3c'; g.fillRect(0, top, W, 10);
+        g.fillStyle = '#c8b28a'; g.fillRect(0, top + 10, W, H - top - 10);
+        for (let x = 10; x < W - 50; x += 64) { g.fillStyle = '#efe8d8'; g.fillRect(x, top + 22, 52, 70); g.fillStyle = '#555'; for (let j = 0; j < 5; j++) g.fillRect(x + 6, top + 30 + j * 12, 40, 3); } // 新聞・雑誌の棚
+      } else if (kind === 'info') {
+        const top = H - Math.round(1.0 * PX);
+        g.fillStyle = '#bcd6ee'; g.fillRect(6, band + 8, W - 12, top - band - 14); // ガラス窓
+        g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.moveTo(30, band + 8); g.lineTo(80, band + 8); g.lineTo(20, top - 6); g.lineTo(6, top - 6); g.lineTo(6, band + 40); g.fill();
+        g.fillStyle = '#9fb1c2'; for (let x = W / 3; x < W - 10; x += W / 3) g.fillRect(x - 2, band + 8, 4, top - band - 14);
+        g.fillStyle = '#5b636b'; g.fillRect(0, top - 6, W, 12);
+        g.fillStyle = '#d5dbe0'; g.fillRect(0, top + 6, W, H - top - 6);
+        g.fillStyle = '#1f6fd1'; g.beginPath(); g.arc(W / 2, top + 50, 22, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#fff'; g.font = 'bold 30px sans-serif'; g.fillText('i', W / 2, top + 52);
+      } else {
+        // 機械: 画面・お金の口・出口・台。ATM はカードの口と現金の口
+        const y0 = band + 18;
+        R('#2b3138', 0.12, y0, 0.76, 60); R(kind === 'atm' ? '#3c7d5a' : '#4f8fd6', 0.16, y0 + 4, 0.68, 52);
+        g.fillStyle = 'rgba(255,255,255,0.55)'; for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) g.fillRect(W * (0.2 + j * 0.31), y0 + 8 + i * 15, W * 0.27, 11);
+        R('#c9ced3', 0.08, y0 + 60, 0.84, 14);
+        if (kind === 'atm') {
+          R('#2b3138', 0.14, y0 + 84, 0.3, 6); R('#2b3138', 0.56, y0 + 84, 0.3, 6); // カード・通帳の口
+          R('#2b3138', 0.18, y0 + 104, 0.64, 26); R('#6b737b', 0.2, y0 + 108, 0.6, 18); // 現金の口
+          R('#2b3138', 0.3, y0 + 140, 0.4, 20); // テンキー
+          g.fillStyle = '#c9ced3'; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) g.fillRect(W * (0.32 + j * 0.13), y0 + 142 + i * 6, W * 0.1, 4);
+        } else {
+          R('#2b3138', 0.14, y0 + 82, 0.2, 5); R('#2b3138', 0.5, y0 + 82, 0.36, 5); // お金・お札の口
+          R('#2b3138', 0.14, y0 + 96, 0.15, 14); R('#e8b04a', 0.18, y0 + 99, 0.07, 8); // IC カード
+          R('#2b3138', 0.18, y0 + 128, 0.64, 14); // きっぷ・おつりの出口
+        }
+        R('#9aa2aa', 0, H - 14, 1, 14); // 台
+        R('#b9c0c6', 0, band, 0.02, H - band - 14); R('#b9c0c6', 0.98, band, 0.02, H - band - 14); // となりの台とのさかい
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.anisotropy = 4;
+      return t;
+    };
+    const tex = {}, body = new THREE.MeshLambertMaterial({ color: '#cfd5da' });
+    for (const [cx, cy, l, n, ang, kind] of data.machines) {
+      const k = KIND[kind];
+      if (!k) continue;
+      const z = lz(l), w = n * k.w, nx = Math.cos(ang), ny = Math.sin(ang), ux = -ny, uy = nx;
+      const map = (tex[kind] || (tex[kind] = draw(kind, k))).clone(); map.needsUpdate = true; map.repeat.set(n, 1);
       const fm = new THREE.MeshLambertMaterial({ map });
-      const box = new THREE.Mesh(new THREE.BoxGeometry(w, 1.85, 0.6), [body, body, body, body, fm, body]); // +z の面が正面
-      box.position.set(...V(cx, cy, z + 0.925));
+      const box = new THREE.Mesh(new THREE.BoxGeometry(w, k.h, k.d), [body, body, body, body, fm, body]); // +z の面が正面
+      box.position.set(...V(cx, cy, z + k.h / 2));
       box.rotation.y = Math.atan2(nx, -ny);
       scene.add(box);
       const p = (a, b) => [cx + ux * a + nx * b, cy + uy * a + ny * b];
-      const q = [p(-w / 2, -0.3), p(w / 2, -0.3), p(w / 2, 0.3), p(-w / 2, 0.3)];
-      for (let i = 0; i < 4; i++) { const [a, b] = [q[i], q[(i + 1) % 4]]; phys.addSeg(a[0], a[1], b[0], b[1], z, z + 1.85); }
+      const q = [p(-w / 2, -k.d / 2), p(w / 2, -k.d / 2), p(w / 2, k.d / 2), p(-w / 2, k.d / 2)];
+      for (let i = 0; i < 4; i++) { const [a, b] = [q[i], q[(i + 1) % 4]]; phys.addSeg(a[0], a[1], b[0], b[1], z, z + k.h); }
     }
   }
 
