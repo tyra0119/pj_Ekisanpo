@@ -133,6 +133,7 @@ function materials() {
     mallWall: lam({ map: panelTexture('#e9e3d8', '#cdc5b6', 1.2), side: THREE.DoubleSide }),
     mallCeil: lam({ color: '#f3f2ee', emissive: '#b9b6ae', side: THREE.DoubleSide }),
     mallInst: lam({ color: '#a9a49b', side: THREE.DoubleSide }),
+    mallPillar: lam({ map: panelTexture('#ece7dd', '#cdc5b6', 0.6), side: THREE.DoubleSide }), // JR の範囲の柱（PLATEAU）
     mallDoor: new THREE.MeshLambertMaterial({ color: '#b5d3df', transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }),
     mallClosure: new THREE.MeshBasicMaterial({ map: panelTexture('#f4ead6', '#cdbb98', 1.8), side: THREE.DoubleSide }), // データの範囲外への口（明かりの入ったガラスのつもり）
     track: lam({ color: '#8a7f70' }),
@@ -602,15 +603,16 @@ export function buildWorld(data, mallBuf, scene) {
   const toThree = (src) => { const o = new Float32Array(src.length); for (let i = 0; i < src.length; i += 3) { o[i] = src[i]; o[i + 1] = src[i + 2]; o[i + 2] = -src[i + 1]; } return o; };
   const mf = get('floor');
   for (let i = 0; i < mf.length; i += 9) phys.addFloor([mf[i], mf[i + 1], mf[i + 2]], [mf[i + 3], mf[i + 4], mf[i + 5]], [mf[i + 6], mf[i + 7], mf[i + 8]]);
-  for (const k of ['wall', 'inst']) { const w = get(k); for (let i = 0; i < w.length; i += 9) phys.addWallTri(w.subarray(i, i + 9)); }
+  for (const k of ['wall', 'inst', 'pillar']) { const w = get(k); for (let i = 0; i < w.length; i += 9) phys.addWallTri(w.subarray(i, i + 9)); }
   const mallMeshes = [
     meshOf(toThree(mf), M.mallFloor, { uv: true }), meshOf(toThree(get('wall')), M.mallWall, { uv: 'side' }), meshOf(toThree(get('ceil')), M.mallCeil),
     meshOf(toThree(get('inst')), M.mallInst), meshOf(toThree(get('door')), M.mallDoor),
     meshOf(toThree(get('stair')), M.mallInst), // 階段の蹴上げ・側面（踏み面は床に入れてある。当たり判定には使わない）
     // 閉じる面（向こうがデータの範囲外。となりの建物・デパートの地下などへの口）は明るいガラスの面に
     meshOf(toThree(get('closure')), M.mallClosure, { uv: 'side' }),
+    meshOf(toThree(get('pillar')), M.mallPillar, { uv: 'side' }),
   ];
-  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor', 'mallStair', 'mallClosure'].forEach((n, i) => { mallMeshes[i].name = n; });
+  ['mallFloor', 'mallWall', 'mallCeil', 'mallInst', 'mallDoor', 'mallStair', 'mallClosure', 'mallPillar'].forEach((n, i) => { mallMeshes[i].name = n; });
   scene.add(...mallMeshes);
 
   // 天井の蛍光灯: 駅の向き（階段の向きの平均）にそろえ、3.6 m × 2.4 m ごとに細長い光る板を並べる
