@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt7hj36';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt7hj36';
-import { addTrains } from './trains.js?v=mvt7hj36';
-import { routeSteps, stepLine } from './steps.js?v=mvt7hj36';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt81v1w';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt81v1w';
+import { addTrains } from './trains.js?v=mvt81v1w';
+import { routeSteps, stepLine } from './steps.js?v=mvt81v1w';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt7hj36'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvt81v1w'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -332,8 +332,12 @@ function edgeGap(u, v) {
 function graphChain(px, py, pl, targets) {
   const n = GN.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), pmode = new Int8Array(n), done = new Uint8Array(n);
   const side = fareSide(px, py, pl), tsides = new Set([...targets].map(nodeSide)), cost = tsides.size === 1 ? GATE_COST : 0;
-  GN.map((g, i) => [i, Math.hypot(g[0] - px, g[1] - py) + (g[2] === pl ? 0 : 80)]).sort((a, b) => a[1] - b[1]).slice(0, 6)
-    .forEach(([i, c]) => { dist[i] = c + (nodeSide(i) !== side ? cost : 0); });
+  // 歩きはじめの点: 近い 12 点のうち、まっすぐ行くと壁を横切る点には大きな損（池袋の西口(中央) の 1F は点が少なく、壁の向こう 72 m 先の
+  // 8番線ホームの点から歩きはじめ、壁越しの直線の道になった）。損を入れて安い 6 点から
+  const wallBetween = (g) => g[2] === pl && data.walls.some((w) => w[4] === pl && crosses([px, py], [g[0], g[1]], [w[0], w[1]], [w[2], w[3]]));
+  GN.map((g, i) => [i, Math.hypot(g[0] - px, g[1] - py) + (g[2] === pl ? 0 : 80)]).sort((a, b) => a[1] - b[1]).slice(0, 12)
+    .map(([i, c]) => [i, c + (nodeSide(i) !== side ? cost : 0) + (wallBetween(GN[i]) ? 1000 : 0)]).sort((a, b) => a[1] - b[1]).slice(0, 6)
+    .forEach(([i, c]) => { dist[i] = c; });
   for (;;) {
     let u = -1, best = Infinity;
     for (let i = 0; i < n; i++) if (!done[i] && dist[i] < best) { best = dist[i]; u = i; }
