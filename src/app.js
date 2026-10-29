@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu5h4s9';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu5h4s9';
-import { addTrains } from './trains.js?v=mvu5h4s9';
-import { routeSteps, stepLine } from './steps.js?v=mvu5h4s9';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu6ad52';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu6ad52';
+import { addTrains } from './trains.js?v=mvu6ad52';
+import { routeSteps, stepLine } from './steps.js?v=mvu6ad52';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvu5h4s9'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvu6ad52'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -1443,16 +1443,15 @@ const panBy = (dx, dy) => {
 };
 const local = (e) => { const r = mcv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 // 指 1 本・左クリックで、ほとんど動かさずに離したら「タップ」: 改札・出口・トイレなどの印なら「行き先にする・ここへ移動」の札、
-// 印の無い所はその場所へ移動。長押し（0.55 秒）は、その場所を行き先にする札（利用者「行き先はミニマップからも選択できるようにしてほしい」）
+// タップ（印の上でも印の無い所でも）は、いつも「行き先にする・ここへ移動」の札を出す（利用者「ミニマップはタップした際、必ず行き先にする、
+// ここへ移動を表示してほしい」。前は印の無い所のタップですぐ移動し、札は長押しのときだけだった）
 let tap = null;
 const miniHits = []; // 地図に描いた印の範囲 [x0, y0, x1, y1, 行き先]
 mcv.addEventListener('pointerdown', (e) => {
   try { mcv.setPointerCapture(e.pointerId); } catch { /* 作った操作（確かめ用）では捕まえられない */ }
   const [x, y] = local(e);
   mp.set(e.pointerId, { x, y, btn: e.button });
-  if (tap?.timer) clearTimeout(tap.timer);
   tap = mp.size === 1 && e.button === 0 ? { id: e.pointerId, x, y, t: performance.now(), moved: false } : null;
-  if (tap) tap.timer = setTimeout(() => { if (tap && !tap.moved) { tap.long = true; openMiniPop(tap.x, tap.y, null); } }, 550);
 });
 mcv.addEventListener('pointermove', (e) => {
   const p = mp.get(e.pointerId);
@@ -1461,7 +1460,6 @@ mcv.addEventListener('pointermove', (e) => {
   if (tap && tap.id === e.pointerId && !tap.moved) {
     if (Math.hypot(x - tap.x, y - tap.y) < 6) return; // まだタップかもしれない
     tap.moved = true;
-    clearTimeout(tap.timer);
     p.x = tap.x; p.y = tap.y;
   }
   if (mp.size === 1) {
@@ -1483,11 +1481,9 @@ mcv.addEventListener('pointermove', (e) => {
 const mEnd = (e) => {
   mp.delete(e.pointerId);
   if (tap && tap.id === e.pointerId) {
-    clearTimeout(tap.timer);
-    if (e.type === 'pointerup' && !tap.moved && !tap.long) {
+    if (e.type === 'pointerup' && !tap.moved) {
       const hit = miniHits.find(([x0, y0, x1, y1]) => tap.x >= x0 && tap.x <= x1 && tap.y >= y0 && tap.y <= y1);
-      if (hit) openMiniPop(tap.x, tap.y, hit[4]);
-      else { closeMiniPop(); jumpTo(...S2W(tap.x, tap.y), Number(mini.floor ?? levelOf(me.z))); }
+      openMiniPop(tap.x, tap.y, hit ? hit[4] : null);
     }
     tap = null;
   }
@@ -1505,7 +1501,7 @@ function openMiniPop(sx, sy, d) {
   let target = d;
   if (!target) {
     const to = landingAt(...S2W(sx, sy), l);
-    if (!to) { toast('そこへは行けません'); return; }
+    if (!to) { closeMiniPop(); toast('そこへは行けません'); return; }
     target = makePin(to[0], to[1], l, '地図で選んだ場所');
   }
   miniPopAt = target;
