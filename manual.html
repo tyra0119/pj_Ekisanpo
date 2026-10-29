@@ -125,13 +125,20 @@ a { color: var(--blue); }
   <div class="wide">
     <div>
       <ul>
-        <li>リンクを開くと、<b>同じ道を同じ速さで再生</b>します。歩いた道には<span class="o">オレンジの足あと</span>（床と小さな地図）が出ます</li>
-        <li>下の帯で<b>一時停止・再開・やめる</b>。歩く操作をすると止まり、<b>そこから自分で歩けます</b></li>
+        <li>リンクを開くと、まず<b>道順の画面</b>が出ます。「出口 7 → 5番線」のような要約と、道のりの長さ・歩く時間・階段の回数、道のりの図、<b>曲がる所・改札・階段ごとの区切りの一覧</b>（目印つき。例: きっぷ売り場のところで右へ曲がる）</li>
+        <li>一覧の行を押すと、<b>その場所の景色</b>に飛びます。実際に歩く前の予習に</li>
+        <li><span class="o">「ひとつずつ見る」</span>は、区切りごとに止まり、「次へ ▶」で次の区切りまで進みます。「続けて再生」は、同じ道を同じ速さで最後まで再生します</li>
+        <li>歩いた道には<span class="o">オレンジの足あと</span>（床と小さな地図）、行き先には<b>光の柱</b>が出ます。上の案内の札に、残りの長さと次の区切りが出ます</li>
+        <li>下の帯で<b>道順・一時停止・再開・やめる</b>。歩く操作をすると止まり、<b>そこから自分で歩けます</b></li>
         <li>道すじ（0.25 秒ごとの位置と向き）は、リンクの <code>#rec=</code> の後ろに縮めて入っています。<b>サーバには何も残りません</b>。アカウントも要りません</li>
         <li>録画は 10 分まで。行き先を案内中なら、行き先の名前も入ります</li>
       </ul>
     </div>
-    <figure><img src="manual/07_replay.jpg" alt="再生リンクを開いた画面。床にオレンジの足あと" loading="lazy"><figcaption>再生リンクを開いたところ。下に「足あとを再生中（5番線 山手線へ）」</figcaption></figure>
+    <figure class="phone"><img src="manual/21_route_panel.jpg" alt="道順の画面。要約、道のりの図、区切りの一覧" loading="lazy"><figcaption>再生リンクを開いたときの道順の画面（スマホ）</figcaption></figure>
+  </div>
+  <div class="two">
+    <figure><img src="manual/22_step.jpg" alt="ひとつずつ見るで区切りに止まった画面" loading="lazy"><figcaption>「ひとつずつ見る」: 区切りで止まり、上の札に「ここで…」。下の「次へ ▶」で次の区切りへ</figcaption></figure>
+    <figure><img src="manual/07_replay.jpg" alt="再生中の画面。床にオレンジの足あと" loading="lazy"><figcaption>「続けて再生」: 床にオレンジの足あと、上の札に残りの長さと次の区切り</figcaption></figure>
   </div>
   <h3>再生リンクの例</h3>
   <div class="links"><!--LINKS-->
@@ -150,7 +157,17 @@ a { color: var(--blue); }
   <h2><span class="no">4</span>出発・行き先と道案内</h2>
   <div class="two">
     <figure><img src="manual/02_dest_panel.jpg" alt="出発・行き先の画面" loading="lazy"><figcaption>「出発・行き先」の画面。上の 2 行で出発（初めはいまいる所）と行き先を選ぶ</figcaption></figure>
-    <figure><img src="manual/03_stairs.jpg" alt="床の矢印と階段の下の番線の札" loading="lazy"><figcaption>床の矢印と、上の案内「あと 約30 m／約12 m 先の階段で 1F へ上る」。階段の下に番線と方面</figcaption></figure>
+    <figure><img src="manual/03_stairs.jpg" alt="床の矢印と階段の下の番線の札" loading="lazy"><figcaption>床の矢印と、上の案内（行き先・残りの長さ・次の区切り）。階段の下に番線と方面</figcaption></figure>
+  </div>
+  <div class="wide">
+    <div>
+      <p>上の案内の札の 3 行目（青い字）に、<b>次の区切り</b>が出ます。区切りは、曲がる所・改札を通る所・階段やエスカレーターで上り下りする所・着く所です。曲がる所は、そばにある札（改札・出口・トイレ・コインロッカー・きっぷ売り場など）を<b>目印</b>にします。</p>
+      <ul>
+        <li>例: 「約 20 m 先、きっぷ売り場のところで右へ曲がる」「まもなく、中央改札1を通る（改札の中へ）」「ここで右へ曲がる」「約 12 m 先、階段で 1F へ上る」</li>
+        <li>行き先には<b>光の柱</b>が立ちます。同じ階にいるときは、壁の向こうでも薄く見えます</li>
+      </ul>
+    </div>
+    <figure><img src="manual/23_beacon.jpg" alt="行き先の光の柱" loading="lazy"><figcaption>行き先（多機能トイレ）の光の柱。上の札に次の区切りと目印</figcaption></figure>
   </div>
   <ul>
     <li>行き先にできるもの: 改札・ホーム（番線と方面）・トイレ・エレベーター・<b>きっぷ売り場・精算所・コインロッカー・ATM・売店・案内所・授乳室・両替所</b>・地下街の出口・待ち合わせ場所・お店・ほかの会社の改札（推定）。名前で探せます（例: 出口 9、トイレ、山手線、券売機、ロッカー）</li>

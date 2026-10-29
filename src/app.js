@@ -2,15 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt3w6uo';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt3w6uo';
-import { addTrains } from './trains.js?v=mvt3w6uo';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt4q74q';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt4q74q';
+import { addTrains } from './trains.js?v=mvt4q74q';
+import { routeSteps, stepLine } from './steps.js';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt3w6uo'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvt4q74q'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -611,6 +612,62 @@ function fareSide(x, y, l) {
   return 'out';
 }
 
+// ---------- 道のりの区切りと目印（steps.js） ----------
+// 目印: 画面に札が出ているもの（改札・出口・ほかの会社の改札・設備・トイレ・待ち合わせ場所・エレベーター）。札と同じ言葉で案内する
+const LANDMARKS = [];
+for (const d of data.dest) {
+  const add = (x, y, name, pri) => LANDMARKS.push({ x, y, l: d.level, name, pri });
+  if (d.t === 'gate') for (const [x, y] of d.pts) add(x, y, d.name, 0);
+  else if (d.t === 'exit') add(...(d.sign || [d.x, d.y]), d.name, 0);
+  else if (d.t === 'ogate') add(d.x, d.y, d.name, 1);
+  else if (d.t === 'fac') add(d.sign[0], d.sign[1], FAC_LABEL[d.kind], 1);
+  else if (d.t === 'toilet') add(...(d.out || [d.x, d.y]), d.name, 2);
+  else if (d.t === 'spot' && !d.near) add(d.x, d.y, d.name, 2);
+  else if (d.t === 'elev') add(d.x, d.y, 'エレベーター', 3);
+}
+const stepHelp = {
+  // いちばん近い目印（R m 以内、同じ階。近さと目印の強さで選ぶ）
+  landmarkAt(x, y, l, R = 7) {
+    let best = null, bv = Infinity;
+    for (const m of LANDMARKS) { if (m.l !== l) continue; const d = Math.hypot(m.x - x, m.y - y); if (d < R && d + m.pri * 1.5 < bv) { bv = d + m.pri * 1.5; best = m.name; } }
+    return best;
+  },
+  // a → b が改札機の列を横切るか。名前は 20 m 以内のいちばん近い改札
+  gateCross(a, b) {
+    for (const r of fareRows) {
+      if (r.l !== a.l) continue;
+      const sa = r.side(a.x, a.y), sb = r.side(b.x, b.y);
+      if (sa * sb >= 0) continue;
+      const u = sa / (sa - sb), x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u, t = (x - r.cx) * r.rx + (y - r.cy) * r.ry;
+      if (t < r.t0 - 1 || t > r.t1 + 1) continue;
+      return { name: stepHelp.gateNear(x, y, a.l), dir: Math.sign(sb) === r.inSign ? 'in' : 'out', u }; // u: a → b のどこで横切るか
+    }
+    return null;
+  },
+  fareAt: (x, y, l) => fareSide(x, y, l),
+  gateNear(x, y, l) { // 20 m 以内のいちばん近い改札の名前
+    let name = null, bd = 20;
+    for (const d of data.dest) if (d.t === 'gate' && d.level === l) for (const [px, py] of d.pts) { const dd = Math.hypot(px - x, py - y); if (dd < bd) { bd = dd; name = d.name; } }
+    return name;
+  },
+  // 階の変わり目の上り下りの手段。道筋は経路網の種類、足あとは近くの坂（無ければエレベーター）
+  modeOf(P, i) {
+    const a = P[i - 1], b = P[i];
+    if (b.mode && MODE[b.mode]) return MODE[b.mode];
+    if (b.z == null) return '階段';
+    if (Math.hypot(b.x - a.x, b.y - a.y) > 8) return 'エレベーター';
+    let best = null, bd = 6;
+    for (const r of data.ramps) {
+      if (![r.la, r.lb].includes(a.l) && ![r.la, r.lb].includes(b.l)) continue;
+      const dx = r.b[0] - r.a[0], dy = r.b[1] - r.a[1], L = dx * dx + dy * dy, t = L ? Math.max(0, Math.min(1, ((a.x - r.a[0]) * dx + (a.y - r.a[1]) * dy) / L)) : 0;
+      const d = Math.hypot(a.x - r.a[0] - dx * t, a.y - r.a[1] - dy * t);
+      if (d < bd) { bd = d; best = r; }
+    }
+    return best ? (best.t === 'e' ? 'エスカレーター' : '階段') : 'エレベーター';
+  },
+  levelName: (l) => LV[l].name,
+};
+
 // 床の矢印
 const chevGeo = (() => {
   const s = new THREE.Shape();
@@ -625,7 +682,35 @@ chevs.renderOrder = 3;
 chevs.frustumCulled = false; // 矢印の置き場所は案内のたびに変わるので、範囲で間引かない
 scene.add(chevs);
 
-const nav = { dest: null, pts: null, at: null, lastCalc: 0, arrived: false };
+const nav = { dest: null, pts: null, steps: null, at: null, lastCalc: 0, arrived: false };
+// 行き先の光の柱: 案内の行き先・足あとの終わりの床から天井まで。脈打たせて遠くから分かるように。同じ階で 4 m より遠いときは壁越しにも薄く見せる
+const beacon = new THREE.Group();
+{
+  const geo = new THREE.CylinderGeometry(0.45, 0.45, 2.8, 24, 1, true);
+  const mat = (o) => new THREE.MeshBasicMaterial({ color: '#ff5a36', transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, ...o }); // 霧で消えないように
+  const col = new THREE.Mesh(geo, mat({ opacity: 0.45 }));
+  const xray = new THREE.Mesh(geo, mat({ opacity: 0.3, depthTest: false }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.8, 40), mat({ opacity: 0.85 }));
+  col.position.y = xray.position.y = 1.4;
+  xray.renderOrder = 6;
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03;
+  beacon.add(col, xray, ring);
+  beacon.userData = { col, xray };
+  beacon.visible = false;
+  scene.add(beacon);
+}
+function updateBeacon(now) {
+  let p = null;
+  if (nav.dest && nav.pts) { const e = nav.pts[nav.pts.length - 1]; p = [e.x, e.y, phys.groundAt(e.x, e.y, LV[e.l].z) ?? LV[e.l].z]; }
+  else if (replay.samples) { const e = replay.samples[replay.samples.length - 1]; p = [e.x, e.y, e.z]; }
+  beacon.visible = !!p;
+  if (!p) return;
+  beacon.position.copy(V3(p[0], p[1], p[2]));
+  const d = Math.hypot(p[0] - me.x, p[1] - me.y), k = 1 + 0.15 * Math.sin(now / 280), { col, xray } = beacon.userData;
+  const kx = k * Math.max(1, d / 12); // 壁越しの柱は遠いほど太く（画面の上で細くなりすぎない）
+  col.scale.set(k, 1, k); xray.scale.set(kx, 1, kx);
+  xray.visible = Math.abs(p[2] - me.z) < 1.5 && d > 4;
+}
 function drawChevrons() {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), yAxis = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
   let k = 0;
@@ -656,6 +741,7 @@ function setDest(d) {
 function recalc() {
   const pl = levelOf(me.z);
   nav.pts = findRoute(me.x, me.y, pl, nav.dest);
+  nav.steps = nav.pts && nav.pts.length > 1 ? routeSteps(nav.pts, stepHelp, { dest: nav.dest.name }) : null;
   if (!nav.pts) { $('gDist').textContent = 'ここからの道が見つかりません'; $('gHint').textContent = 'データの上で通路がつながっていません'; }
   nav.at = { x: me.x, y: me.y, l: pl };
   nav.lastCalc = performance.now();
@@ -709,6 +795,12 @@ function updateGuide() {
     before += Math.hypot(b.x - a.x, b.y - a.y) * (i === pr.i ? 1 - pr.t : 1);
   }
   if (!hint && end.l !== pl) hint = `${LV[end.l].name} へ`;
+  // 次の区切り（曲がる・改札を通る・上り下り・着く）とそばの目印
+  if (nav.steps) {
+    const c = nav.steps.cum, sCur = c[pr.i - 1] + (c[pr.i] - c[pr.i - 1]) * pr.t;
+    const next = nav.steps.steps.find((st) => st.kind !== 'start' && st.s > sCur - 1); // 区切りの 1 m 先までは「ここで」
+    if (next) hint = stepLine(next, next.s - sCur);
+  }
   $('gHint').textContent = hint;
   if (!nav.arrived && Math.hypot(end.x - me.x, end.y - me.y) < 3 && end.l === pl) {
     nav.arrived = true;
@@ -975,8 +1067,9 @@ function drawMini() {
     mg.fillStyle = d.t === 'toilet' || d.t === 'fac' ? '#fff' : '#111';
     mg.fillText(t, x, y);
   }
-  if (nav.dest) {
-    const [x, y] = W2S(nav.dest.x, nav.dest.y);
+  const goal = nav.dest ? [nav.dest.x, nav.dest.y, true] : replay.samples ? (() => { const e = replay.samples[replay.samples.length - 1]; return [e.x, e.y, String(levelOf(e.z)) === pl]; })() : null; // 足あとの終わりも、その階を出しているとき
+  if (goal && goal[2]) {
+    const [x, y] = W2S(goal[0], goal[1]);
     mg.fillStyle = '#e8453c'; mg.beginPath(); mg.arc(x, y - 9, 6, 0, Math.PI * 2); mg.moveTo(x - 5, y - 6); mg.lineTo(x, y); mg.lineTo(x + 5, y - 6); mg.fill();
   }
   // 移動先
@@ -1167,7 +1260,7 @@ trail.count = 0;
 trail.renderOrder = 3;
 trail.frustumCulled = false;
 scene.add(trail);
-const replay = { samples: null, t: 0, playing: false };
+const replay = { samples: null, t: 0, playing: false, steps: null, dest: null, stepMode: false, next: 1 }; // steps: 道のりの区切り、next: ひとつずつ見るときに次に止まる区切り
 
 function sampleNow() { return { x: me.x, y: me.y, z: me.z, yaw: me.yaw, pitch: me.pitch }; }
 async function toggleRec() {
@@ -1251,40 +1344,142 @@ function setReplayPose(t) {
 function pauseReplay(msg) {
   if (!replay.playing) return;
   replay.playing = false;
-  $('replayPlay').textContent = '▶';
+  setPlayBtn();
   if (msg) $('replayTitle').textContent = msg;
 }
-$('replayPlay').onclick = () => {
-  if (replay.playing) { pauseReplay('一時停止中'); return; }
-  if (replay.t >= (replay.samples.length - 1) * SAMPLE_MS) replay.t = 0;
-  replay.playing = true;
-  $('replayPlay').textContent = '❚❚';
-  $('replayTitle').textContent = '足あとを再生中';
+// 再生の帯のボタン: 再生中は ❚❚、ひとつずつ見るときは「次へ」、ほかは ▶
+const setPlayBtn = () => {
+  const next = !replay.playing && replay.stepMode && replay.next < replay.steps.steps.length;
+  $('replayPlay').textContent = replay.playing ? '❚❚' : next ? '次へ ▶' : '▶';
+  $('replayPlay').classList.toggle('next', next);
 };
+const playReplay = () => {
+  if (replay.t >= (replay.samples.length - 1) * SAMPLE_MS - 1) { replay.t = 0; replay.next = 1; }
+  replay.playing = true;
+  setPlayBtn();
+  $('replayTitle').textContent = replay.stepMode ? `区切り ${replay.next}/${replay.steps.steps.length - 1} へ` : '足あとを再生中';
+};
+$('replayPlay').onclick = () => { if (replay.playing) pauseReplay('一時停止中'); else playReplay(); };
 $('replayEnd').onclick = () => {
-  replay.playing = false; replay.samples = null;
+  replay.playing = false; replay.samples = null; replay.steps = null;
   $('replayBar').hidden = true;
+  $('routePanel').hidden = true;
   trail.count = 0;
+  if (!nav.dest) $('guide').hidden = true;
+  $('guide').classList.remove('replay');
   history.replaceState(null, '', location.pathname + location.search);
 };
+// 区切り k の所へ（止めて、その場所の景色を見せる）
+function goStep(k) {
+  const st = replay.steps.steps[k];
+  replay.playing = false;
+  replay.t = st.t ?? 0;
+  replay.next = k + 1;
+  setReplayPose(replay.t);
+  me.eye = me.z + EYE;
+  $('replayTitle').textContent = k === 0 ? '出発地' : `区切り ${k}/${replay.steps.steps.length - 1}`;
+  setPlayBtn();
+}
 async function loadReplay() {
   const m = location.hash.match(/^#rec=(.+)$/);
   if (!m) return false;
   try {
     const { samples, destIndex } = await decodeTrack(m[1]);
     if (samples.length < 2) return false;
-    Object.assign(replay, { samples, t: 0, playing: true });
+    const dest = destIndex < data.dest.length ? data.dest[destIndex] : null;
+    const P = samples.map((p, i) => ({ x: p.x, y: p.y, z: p.z, l: levelOf(p.z), t: i * SAMPLE_MS }));
+    Object.assign(replay, { samples, t: 0, playing: false, dest, steps: routeSteps(P, stepHelp, { dest: dest?.name, jump: 8 }), stepMode: false, next: 1 });
     drawTrail(samples);
     setReplayPose(0);
     me.eye = me.z + EYE;
     $('replayBar').hidden = false;
-    if (destIndex < data.dest.length) $('replayTitle').textContent = `足あとを再生中（${data.dest[destIndex].name}へ）`;
+    $('replayTitle').textContent = '道順を見る';
+    setPlayBtn();
+    openRoutePanel();
     return true;
   } catch (e) {
     toast('足あとを開けませんでした');
     console.warn(e);
     return false;
   }
+}
+// ---------- 道順の画面（再生リンクを開いたとき）: 要約・道のりの図・区切りの一覧 ----------
+const STEP_MARK = { start: '出', arrive: '着' };
+function openRoutePanel() {
+  const R = replay.steps, S = replay.samples, steps = R.steps;
+  if (replay.playing) pauseReplay('一時停止中');
+  $('routeTitle').textContent = `${R.startName || '出発地'} → ${R.endName || '行き先'}`;
+  const ups = {};
+  for (const st of steps) if (st.kind === 'level') { const k = st.act.split('で')[0]; ups[k] = (ups[k] || 0) + 1; }
+  const sec = ((S.length - 1) * SAMPLE_MS) / 1000;
+  $('routeSum').textContent = [`約 ${Math.max(1, Math.round(R.total))} m`, `歩いて約 ${Math.max(1, Math.round(sec / 60))} 分`, ...Object.entries(ups).map(([k, n]) => `${k} ${n} 回`)].join('・');
+  const ol = $('routeSteps');
+  ol.innerHTML = '';
+  steps.forEach((st, k) => {
+    const li = document.createElement('li'), b = document.createElement('button');
+    b.type = 'button';
+    const cls = st.kind === 'start' ? 's' : st.kind === 'arrive' ? 'g' : '';
+    b.innerHTML = `<span class="no ${cls}">${STEP_MARK[st.kind] || k}</span><span></span><small>${k && st.kind !== 'arrive' ? `${Math.round(st.s)} m` : ''}</small>`;
+    b.children[1].textContent = st.text;
+    b.onclick = () => { $('routePanel').hidden = true; goStep(k); };
+    li.append(b); ol.append(li);
+  });
+  $('routePanel').hidden = false;
+  requestAnimationFrame(drawRouteMap);
+}
+// 道のりの図: 通る階の床（上が北）、足あとの線、区切りの番号
+function drawRouteMap() {
+  const cv = $('routeMap'), W = cv.clientWidth, H = cv.clientHeight, dpr = devicePixelRatio || 1;
+  if (!W) return;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'), S = replay.samples, steps = replay.steps.steps;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of S) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const pad = 14, k = Math.min((W - 2 * pad) / Math.max(20, x1 - x0), (H - 2 * pad) / Math.max(20, y1 - y0));
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, X = (x) => W / 2 + (x - cx) * k, Y = (y) => H / 2 - (y - cy) * k;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#f4f2ee'; g.fillRect(0, 0, W, H);
+  const levels = new Set(S.map((p) => levelOf(p.z)));
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.strokeStyle = '#cfc8bb'; g.lineWidth = 0.8;
+  for (const f of data.floors) {
+    if (!levels.has(f.l)) continue;
+    g.beginPath();
+    for (const r of f.r) { for (let i = 0; i < r.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, X(r[i]), Y(r[i + 1])); g.closePath(); }
+    g.fill('evenodd'); g.stroke();
+  }
+  g.strokeStyle = '#f08c00'; g.lineWidth = 4; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.beginPath();
+  for (let i = 1; i < S.length; i++) { if (Math.hypot(S[i].x - S[i - 1].x, S[i].y - S[i - 1].y) > 8) continue; g.moveTo(X(S[i - 1].x), Y(S[i - 1].y)); g.lineTo(X(S[i].x), Y(S[i].y)); }
+  g.stroke();
+  g.font = 'bold 11px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  steps.forEach((st, i) => {
+    const x = X(st.x), y = Y(st.y);
+    g.fillStyle = st.kind === 'start' ? '#0b8f4d' : st.kind === 'arrive' ? '#e8453c' : '#f08c00';
+    g.beginPath(); g.arc(x, y, 9, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#fff'; g.fillText(STEP_MARK[st.kind] || String(i), x, y + 0.5);
+  });
+}
+$('routeClose').onclick = () => { $('routePanel').hidden = true; };
+$('routePanel').onclick = (e) => { if (e.target === $('routePanel')) $('routePanel').hidden = true; };
+$('routeStepBtn').onclick = () => { $('routePanel').hidden = true; replay.stepMode = true; goStep(0); playReplay(); };
+$('routePlayBtn').onclick = () => { $('routePanel').hidden = true; replay.stepMode = false; playReplay(); };
+$('replayList').onclick = () => openRoutePanel();
+// 再生中・止めているあいだの案内の札（足あとの残りの長さと次の区切り）
+function updateReplayGuide() {
+  if (!replay.samples || !replay.steps || nav.dest) return;
+  const R = replay.steps, c = R.cum, f = Math.max(0, Math.min(c.length - 1, replay.t / SAMPLE_MS)), i = Math.min(c.length - 2, Math.floor(f));
+  const sCur = c[i] + (c[i + 1] - c[i]) * (f - i);
+  const gd = $('guide');
+  if (gd.hidden || !gd.classList.contains('replay')) { gd.hidden = false; gd.classList.add('replay'); }
+  $('gName').textContent = replay.dest ? `${replay.dest.name}へ（足あと）` : '足あとの道順';
+  $('gDist').textContent = `あと 約${Math.max(0, Math.round(R.total - sCur))} m`;
+  const next = R.steps.find((st) => st.kind !== 'start' && st.s > sCur - 1) || R.steps[R.steps.length - 1]; // 区切りの 1 m 先までは「ここで」
+  $('gHint').textContent = stepLine(next, next.s - sCur);
+  // 画面の矢印: 足あとの 4 m 先
+  let j = i; while (j < c.length - 1 && c[j] < sCur + 4) j++;
+  const b = replay.samples[j];
+  $('arrow').style.transform = `rotate(${((Math.atan2(b.x - me.x, b.y - me.y) - me.yaw) * 180) / Math.PI}deg)`;
 }
 const replaying = await loadReplay();
 // URL の ?from=出発地&to=行き先（名前。「5番線」のように先頭だけでもよい）
@@ -1399,8 +1594,17 @@ function frame(now) {
     else {
       replay.t += dt * 1000;
       const end = (replay.samples.length - 1) * SAMPLE_MS;
-      setReplayPose(Math.min(replay.t, end));
-      if (replay.t >= end) pauseReplay('再生おわり（ここから歩けます）');
+      // ひとつずつ見る: 次の区切りの所で止める
+      const st = replay.stepMode && replay.steps.steps[replay.next];
+      if (st && st.t != null && replay.t >= st.t && st.kind !== 'arrive') {
+        replay.t = st.t;
+        setReplayPose(replay.t);
+        const k = replay.next++;
+        pauseReplay(`区切り ${k}/${replay.steps.steps.length - 1}`);
+      } else {
+        setReplayPose(Math.min(replay.t, end));
+        if (replay.t >= end) { replay.next = replay.steps.steps.length; pauseReplay('着きました（ここから歩けます）'); }
+      }
     }
   } else if (mag > 0.01) {
     const k = (speed * dt) / Math.max(1, mag);
@@ -1427,6 +1631,8 @@ function frame(now) {
   trains.update(dt);
   watchLevel();
   updateGuide();
+  updateReplayGuide();
+  updateBeacon(now);
   updateElev();
   drawMini();
   drawCompass();
@@ -1437,4 +1643,4 @@ $('loading').hidden = true;
 requestAnimationFrame(frame);
 
 // 確かめ用（コンソールから位置を見る・動かす）
-window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt, scene, camera, THREE, fareSide };
+window.ekisanpo = { me, phys, setDest, data, move, nav, rec, replay, encodeTrack, decodeTrack, trains, mini, jumpTo, W2S, S2W, getGrid, gridPath, startAt, scene, camera, THREE, fareSide, stepHelp, fareRows };
