@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu6ixl0';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu6ixl0';
-import { addTrains } from './trains.js?v=mvu6ixl0';
-import { routeSteps, stepLine } from './steps.js?v=mvu6ixl0';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu6p41p';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu6p41p';
+import { addTrains } from './trains.js?v=mvu6p41p';
+import { routeSteps, stepLine } from './steps.js?v=mvu6p41p';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvu6ixl0'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvu6p41p'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -1514,7 +1514,8 @@ function openMiniPop(sx, sy, d) {
 }
 function closeMiniPop() { $('miniPop').hidden = true; miniPopAt = null; }
 $('mpClose').onclick = closeMiniPop;
-$('mpDest').onclick = () => { const d = miniPopAt; closeMiniPop(); if (!d) return; startName = null; setDest(d); toast(`${d.name}への案内を始めます`); };
+// 行き先にしたら、地図は自分のいる階・現在地に戻す（ほかの階に切り替えて行き先を選ぶと、地図がその階のままで、いる階の道が見えなかった）
+$('mpDest').onclick = () => { const d = miniPopAt; closeMiniPop(); if (!d) return; startName = null; setDest(d); mini.floor = null; mini.follow = true; toast(`${d.name}への案内を始めます`); };
 $('mpGo').onclick = () => { const d = miniPopAt; closeMiniPop(); if (d) jumpTo(d.x, d.y, d.level); };
 mcv.addEventListener('pointerup', mEnd);
 mcv.addEventListener('pointercancel', mEnd);
@@ -1898,7 +1899,7 @@ function drawCompass() {
     if (cards.some(hit) && !cards.some((x) => !hit(x))) { side[k] = null; continue; }
     used.push(zone);
   }
-  const edge = used.slice();
+  const edge = used.slice(), shown = []; // shown: 描いた東西南北の位置
   // 目盛り（15° ごと）と東西南北
   for (let d = 0; d < 360; d += 15) {
     const a = rel((d * Math.PI) / 180);
@@ -1906,6 +1907,7 @@ function drawCompass() {
     const x = cx + a * px, card = d % 90 === 0;
     if (edge.some(([l, r]) => x + (card ? 7 : 1) > l && x - (card ? 7 : 1) < r)) continue;
     if (card) {
+      shown.push(x);
       g.font = 'bold 13px system-ui, sans-serif';
       g.fillStyle = d === 0 ? '#ff6b5e' : '#fff';
       g.fillText('北東南西'[d / 90], x, h / 2 + 1);
@@ -1921,8 +1923,13 @@ function drawCompass() {
   g.font = 'bold 11px system-ui, sans-serif'; g.textAlign = 'center';
   for (const [name, a] of marks) {
     if (Math.abs(a) > SPAN) continue;
-    const tw = g.measureText(name).width + 12, x = Math.max(tw / 2 + 2, Math.min(w - tw / 2 - 2, cx + a * px));
-    if (used.some(([l, r]) => x + tw / 2 > l && x - tw / 2 < r)) continue;
+    const tw = g.measureText(name).width + 12, clamp = (v) => Math.max(tw / 2 + 2, Math.min(w - tw / 2 - 2, v));
+    // 東西南北の文字にかかるときは、札を文字のすぐ横へずらす（札の下に隠れて、帯に方角の文字が 1 つも見えないことがあった）
+    const onCard = (v) => shown.find((c) => v + tw / 2 + 2 > c - 8 && v - tw / 2 - 2 < c + 8);
+    let x = clamp(cx + a * px);
+    const c0 = onCard(x);
+    if (c0 != null) { const L = clamp(c0 - 10 - tw / 2), R = clamp(c0 + 10 + tw / 2); x = Math.abs(L - x) <= Math.abs(R - x) && onCard(L) == null ? L : R; }
+    if (onCard(x) != null || used.some(([l, r]) => x + tw / 2 > l && x - tw / 2 < r)) continue;
     used.push([x - tw / 2, x + tw / 2]);
     g.fillStyle = '#0b8f4d';
     g.beginPath(); g.roundRect(x - tw / 2, 5, tw, h - 10, 8); g.fill();
