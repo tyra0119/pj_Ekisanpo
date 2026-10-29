@@ -2,39 +2,36 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt2z7zy';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt2z7zy';
-import { addTrains } from './trains.js?v=mvt2z7zy';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvt37ds9';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvt37ds9';
+import { addTrains } from './trains.js?v=mvt37ds9';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvt2z7zy'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvt37ds9'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
-// 試作: ?plateau=1 で、地下 1 階を PLATEAU の壁・柱を主にして作った版（<駅>-p.json）を読む（試作のある駅だけ）
-const FUSE = ST.fuse && new URLSearchParams(location.search).get('plateau') === '1';
-const DKEY = FUSE ? `${ST.key}-p` : ST.key;
 const [data, mallBuf] = await Promise.all([
-  fetch(`data/${DKEY}.json${VER}`).then((r) => r.json()),
-  ST.mall ? fetch(`data/${DKEY}-mall.bin${VER}`).then((r) => r.arrayBuffer()) : null,
+  fetch(`data/${ST.key}.json${VER}`).then((r) => r.json()),
+  ST.mall ? fetch(`data/${ST.key}-mall.bin${VER}`).then((r) => r.arrayBuffer()) : null,
 ]);
 const GL = data.mall ? data.mall.level : null; // 地下街をつなぐ階（マス目で道を探す階）。地下街の無い駅は null
 $('credit').textContent = '出典: ' + data.credits.join(' ／ ');
 $('helpCredit').textContent = '出典: ' + data.credits.join(' ／ ');
 document.title = `エキさんぽ ${data.station.replace(/^JR/, '')}`;
-$('stationName').textContent = `${data.station}駅${FUSE ? '（試作）' : ''}`;
+$('stationName').textContent = `${data.station}駅`;
 $('helpStation').textContent = `${data.station}駅`;
 // 駅の切り替え（左上の駅名）
 $('stationBtn').onclick = () => {
   const list = $('stationList');
   list.innerHTML = '';
-  for (const s of STATIONS) for (const fuse of s.fuse ? [false, true] : [false]) { // 試作のある駅は「（試作）」も並べる
+  for (const s of STATIONS) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'item' + (s.key === ST.key && fuse === !!FUSE ? ' sel' : '');
-    b.innerHTML = `<span class="dot" style="background:#0b8f4d">駅</span>${s.name}駅${fuse ? '（試作）' : ''}<span class="tag">${fuse ? '地下 1 階を PLATEAU の壁・柱で' : s.mall ? '地下街も' : ''}</span>`;
-    b.onclick = () => { location.href = `${location.pathname}?st=${s.key}${fuse ? '&plateau=1' : ''}`; };
+    b.type = 'button'; b.className = 'item' + (s.key === ST.key ? ' sel' : '');
+    b.innerHTML = `<span class="dot" style="background:#0b8f4d">駅</span>${s.name}駅<span class="tag">${s.mall ? '地下街も' : ''}</span>`;
+    b.onclick = () => { location.href = `${location.pathname}?st=${s.key}`; };
     list.append(b);
   }
   $('stationPanel').hidden = false;
