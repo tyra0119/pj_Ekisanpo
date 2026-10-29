@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvtbdrdn';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvtbdrdn';
-import { addTrains } from './trains.js?v=mvtbdrdn';
-import { routeSteps, stepLine } from './steps.js?v=mvtbdrdn';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvtg2yc6';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvtg2yc6';
+import { addTrains } from './trains.js?v=mvtg2yc6';
+import { routeSteps, stepLine } from './steps.js?v=mvtg2yc6';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvtbdrdn'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvtg2yc6'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -1935,7 +1935,7 @@ function frame(now) {
   if (keys.has('ArrowLeft')) turn -= 1;
   if (keys.has('ArrowRight')) turn += 1;
   me.yaw += turn * 1.9 * dt;
-  const RUN = 5.0, WALK = 1.5; // 走る・歩く速さ（m/秒）
+  const RUN = 7.5, WALK = 1.5; // 走る・歩く速さ（m/秒）。走るは 5.0 の 1.5 倍（利用者「走る速度を1.5倍にしてほしい」）
   let speed = keys.has('ShiftLeft') || keys.has('ShiftRight') || running ? RUN : WALK;
   if (stick.id != null) {
     f += stick.vy; s += stick.vx;
