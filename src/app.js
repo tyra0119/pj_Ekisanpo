@@ -2,16 +2,16 @@
 // 操作（PC）: WASD・矢印キーで歩く、ドラッグで見回す。（スマホ）左下の十字キー、右側をなぞると見回す。
 
 import * as THREE from 'three';
-import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvtg2yc6';
-import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvtg2yc6';
-import { addTrains } from './trains.js?v=mvtg2yc6';
-import { routeSteps, stepLine } from './steps.js?v=mvtg2yc6';
+import { buildWorld, addGateRow, EYE, STEP } from './world.js?v=mvu5h4s9';
+import { encodeTrack, decodeTrack, startVideo, SAMPLE_MS, MAX_SAMPLES } from './record.js?v=mvu5h4s9';
+import { addTrains } from './trains.js?v=mvu5h4s9';
+import { routeSteps, stepLine } from './steps.js?v=mvu5h4s9';
 
 const $ = (id) => document.getElementById(id);
 const touchUI = matchMedia('(pointer: coarse)').matches;
 if (touchUI) document.body.classList.add('touch');
 
-const VER = '?v=mvtg2yc6'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
+const VER = '?v=mvu5h4s9'; // 公開用に書き出すとき、版の印（?v=…）に置きかえる（tools/publish.mjs）
 const STATIONS = await fetch(`data/stations.json${VER}`).then((r) => r.json());
 const ST = STATIONS.find((s) => s.key === new URLSearchParams(location.search).get('st')) || STATIONS[0];
 const [data, mallBuf] = await Promise.all([
@@ -921,9 +921,9 @@ const beacon = new THREE.Group();
 }
 function updateBeacon(now) {
   let p = null;
-  if (nav.dest && nav.pts) { const e = nav.pts[nav.pts.length - 1]; p = [e.x, e.y, phys.groundAt(e.x, e.y, LV[e.l].z) ?? LV[e.l].z]; }
+  if (nav.dest && nav.pts) { const e = nav.pts[nav.pts.length - 1]; p = [e.x, e.y, floorNear(e.x, e.y, LV[e.l].z) ?? LV[e.l].z]; }
   else if (replay.samples) { const e = replay.samples[replay.samples.length - 1]; p = [e.x, e.y, e.z]; }
-  else if (herePin) p = [herePin.x, herePin.y, phys.groundAt(herePin.x, herePin.y, LV[herePin.level].z) ?? LV[herePin.level].z]; // 「ここにいます」の相手
+  else if (herePin) p = [herePin.x, herePin.y, floorNear(herePin.x, herePin.y, LV[herePin.level].z) ?? LV[herePin.level].z]; // 「ここにいます」の相手
   beacon.visible = !!p;
   if (!p) return;
   beacon.position.copy(V3(p[0], p[1], p[2]));
@@ -932,20 +932,32 @@ function updateBeacon(now) {
   col.scale.set(k, 1, k); xray.scale.set(kx, 1, kx);
   xray.visible = Math.abs(p[2] - me.z) < 1.5 && d > 4;
 }
+// (x, y) の真下の床のうち、階の高さ z の近く（下 3.5 m・上 1.5 m）で、prev（一つ前の矢印の床）にいちばん近いもの。無ければ null
+// （矢印を階の高さに置いていたので、地下街の通路など床が階の高さより低い所で、矢印が宙に浮いて天井の近くに見えた。池袋の地下 1 階）
+function floorNear(x, y, z, prev = null) {
+  const c = phys.surfacesAt(x, y).filter((s) => s >= z - 3.5 && s <= z + 1.5);
+  if (!c.length) return null;
+  const by = (r) => c.reduce((b, s) => (Math.abs(s - r) < Math.abs(b - r) ? s : b));
+  const p = prev == null ? null : by(prev);
+  return p != null && Math.abs(p - prev) < 1.5 ? p : by(z);
+}
 function drawChevrons() {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), yAxis = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
-  let k = 0;
+  let k = 0, prev = null;
   const pts = nav.pts || [];
   for (let i = 1; i < pts.length && k < 800; i++) {
     const a = pts[i - 1], b = pts[i];
-    if (b.mode === 5) continue; // エレベーターの中は描かない
+    if (b.mode === 5) { prev = null; continue; } // エレベーターの中は描かない
     const len = Math.hypot(b.x - a.x, b.y - a.y);
     const bearing = Math.atan2(b.x - a.x, b.y - a.y);
     q.setFromAxisAngle(yAxis, -bearing);
-    const za = LV[a.l].z, zb = LV[b.l].z, lift = a.l !== b.l ? 0.3 : 0.06;
+    const za = LV[a.l].z, zb = LV[b.l].z;
+    if (i === 1 && Math.hypot(a.x - me.x, a.y - me.y) < 2) prev = me.z;
     for (let t = i === 1 ? 1.2 : 0.4; t < len && k < 800; t += 1.6) {
-      const f = t / len;
-      m4.compose(V3(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, za + (zb - za) * f + lift), q, one);
+      const f = t / len, x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f, zt = za + (zb - za) * f;
+      const g = floorNear(x, y, zt, prev);
+      if (g != null) prev = g;
+      m4.compose(V3(x, y, (g ?? zt) + (g == null && a.l !== b.l ? 0.3 : 0.06)), q, one);
       chevs.setMatrixAt(k++, m4);
     }
   }
